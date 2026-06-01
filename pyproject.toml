@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "copula-default-graph"
+version = "0.1.0"
+description = "Network-based credit default risk modeling with copulas"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.20",
+    "pandas>=1.3",
+    "scipy>=1.7",
+    "scikit-learn>=1.0",
+    "matplotlib>=3.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
