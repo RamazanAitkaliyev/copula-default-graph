@@ -1,16 +1,93 @@
 """
-Risk Metrics Framework
+Risk Metrics Framework  (src/risk_metrics.py)
+=============================================
 
+PURPOSE
+-------
 Computes risk metrics at three levels:
-1. INDIVIDUAL: Per-person risk scores and rankings
-2. GROUP: High-risk cluster analysis
-3. PORTFOLIO: VaR, ES, concentration metrics
+  1. INDIVIDUAL: marginal PD, contagion vulnerability, systemic importance,
+     network exposure, composite risk score, risk tier.
+  2. GROUP: high-risk cluster summary (avg PD, density, joint default prob).
+  3. PORTFOLIO: VaR, ES, HHI concentration, default correlation.
 
-These metrics answer:
-- Who is individually risky?
-- Who is dangerous to others (systemic)?
-- Who is vulnerable to others (contagion)?
-- What is the portfolio tail risk?
+AGENT ENTRY POINT
+-----------------
+Preferred: use RiskAgentAPI.top_risks(), RiskAgentAPI.portfolio_summary(),
+           RiskAgentAPI.run_stress().
+Direct use:
+    analyzer = RiskAnalyzer(copula, graph, persons, exposures=ead, lgd=0.45)
+    individual_risks = analyzer.compute_individual_risks()
+    portfolio = analyzer.compute_portfolio_risks(n_simulations=10_000)
+    stress = analyzer.stress_test(pd_multiplier=2.0, correlation_boost=0.2)
+
+PRECONDITIONS
+-------------
+  - copula must be fitted.
+  - exposures array length must match copula.n (= len(persons)).
+  - persons must have 'person_id' as unique integers.
+
+KEY OUTPUTS
+-----------
+  compute_individual_risks() → pd.DataFrame with columns:
+    person_id, city_name, risk_archetype, marginal_pd,
+    contagion_vulnerability, systemic_importance, network_exposure,
+    composite_risk_score, risk_tier
+
+    composite_risk_score weights (configurable via RiskConfig):
+      0.40 × marginal_pd_score
+      0.25 × network_exposure_score
+      0.20 × contagion_vulnerability_score
+      0.15 × systemic_importance_score
+
+    risk_tier mapping (percentile-based):
+      'low'      ← bottom 60%
+      'medium'   ← 60th–85th percentile
+      'high'     ← 85th–95th percentile
+      'critical' ← top 5%
+
+  compute_portfolio_risks() → PortfolioRiskResult with fields:
+    expected_loss, var_95, var_99, es_95, es_99,
+    default_correlation, concentration_index (HHI), tail_risk_ratio (ES/VaR)
+
+  stress_test() → dict with keys 'base', 'stressed', 'change'
+    Each sub-dict: {expected_loss, var_95, es_95, ...}
+    'change' values are FRACTIONAL (not percentage). Multiply by 100 for %.
+    # AGENT: change['expected_loss'] = 0.47 means +47%, not +0.47%.
+
+INVARIANTS
+----------
+# AGENT: INV-5 — The stress test MUST use the _stressed_copula() context manager.
+#   This temporarily modifies copula.marginal_pds and correlation_matrix,
+#   then restores them on exit (even on exception).
+#   Never call: copula.marginal_pds *= pd_multiplier  (permanent corruption)
+
+# AGENT: risk_tier arrays MUST use dtype=object to avoid string truncation.
+#   np.array(['critical', 'high', 'medium']) with default dtype
+#   truncates 'critical' to 'cri'. Use np.full(n, 'low', dtype=object).
+#   The symptom: risk_tier column shows 'cri' instead of 'critical'.
+
+# AGENT: exposures array is normalised income-based in the default pipeline
+#   (income / mean_income). This makes portfolio VaR/ES dimensionless.
+#   For dollar-valued risk metrics, pass actual EAD from ClientValueCalculator.
+
+METRIC DEFINITIONS
+------------------
+  marginal_pd          = copula.marginal_pds[i]  (model PD after graph enrichment)
+
+  contagion_vulnerability = avg PD uplift if each neighbour defaults independently.
+    Measures: "how much does my default probability rise if my network neighbourhood
+    defaults?" High values → dependent on network health.
+
+  systemic_importance = avg PD uplift caused in others if this borrower defaults.
+    Measures: "if I default, how much do I hurt others?" High values → bridge nodes,
+    high-degree nodes. The key input to "too big to fail" analysis.
+
+  composite_risk_score ∈ [0, 1] — weighted combination of all four dimensions.
+    Used for risk-tier assignment and watchlist construction.
+
+  HHI (Herfindahl-Hirschman Index) = Σ (EAD_i / Σ EAD)²
+    Range: [1/n, 1]. Near 0 = perfectly diversified. Near 1 = single borrower.
+    Regulatory concern threshold: > 0.15 (moderately concentrated).
 """
 
 from __future__ import annotations

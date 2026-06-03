@@ -2,6 +2,22 @@
 
 AI agents (Claude Code, Copilot, Cursor, etc.) should read this file first.
 
+## Agent quick-start
+
+**For AI agents:** Read `AGENTS.md` first — it is the authoritative contract.
+Use `src/agents.py:RiskAgentAPI` as the entry point rather than calling modules directly.
+Ready-to-use system prompts for four agent personas are in `PROMPTS.md`.
+
+```python
+from src.agents import RiskAgentAPI
+api = RiskAgentAPI()
+api.run_pipeline()
+r = api.flag_divergences()   # primary early-warning output
+print(r.summary)
+```
+
+---
+
 ## Quick orientation
 
 This is a **credit-risk framework** that models correlated defaults using:
@@ -10,11 +26,13 @@ This is a **credit-risk framework** that models correlated defaults using:
 2. A **transaction-graph** layer that turns money flows into a correlation matrix (`src/graph_features.py`)
 3. A **Clayton copula** that turns marginal PDs + correlations into joint defaults (`src/copula_model.py`)
 4. **Risk metrics** at individual / group / portfolio level (`src/risk_metrics.py`)
-5. Four analytical extensions: rating engine, Merton structural PD, flexible probabilities (regime-aware copula), customer profiles
+5. A **pluggable risk-adjusted metric family** (CoV, RAROC, Sortino, copula-Sortino, etc.) at any aggregation level (`src/risk_adjusted_metrics.py`)
+6. A **metric comparison harness** that shows which metrics agree/disagree and flags RAROC-vs-Sortino divergence as a contagion early warning (`src/metric_comparison.py`)
+7. Four analytical extensions: rating engine, Merton structural PD, flexible probabilities (regime-aware copula), customer profiles
 
-**Run order:** `main.py` executes a 13-step pipeline end-to-end. Grep `# STEP` in `main.py` to jump to any step.
+**Run order:** `main.py` executes a 13-step pipeline (+ STEP 8b) end-to-end. Grep `# STEP` in `main.py` to jump to any step.
 
-**Run tests:** `python test_copula_framework.py` — should print `All 23 tests passed.`
+**Run tests:** `python test_copula_framework.py` — should print `All 36 tests passed.`
 
 **Run pipeline:** `python main.py` — completes in ~30-60 s, writes PNGs + CSVs to `output/`
 
@@ -24,24 +42,34 @@ This is a **credit-risk framework** that models correlated defaults using:
 
 ```
 src/
-  config.py               – Dataclass configs (NetworkConfig, CopulaConfig, …)
-  data_generator.py       – generate_network() → (persons_df, transactions_df)
-  graph_features.py       – TransactionGraph  → correlation matrix, network stats
-  copula_model.py         – CopulaDefaultModel (5 copula types) + compare_copulas()
-  risk_metrics.py         – RiskAnalyzer, PortfolioRiskMetrics, FraudRingDetector
-  pd_model.py             – IndividualPDModel (logistic / gradient boosting)
-  client_value_metrics.py – ClientValueCalculator (Sharpe, RAROC, client segments)
-  rating_engine.py        – RatingEngine (PD → AAA…Default + migration matrix)
-  structural_pd.py        – StructuralPDModel (Merton structural PD, proxy for retail)
-  flexible_probs.py       – FlexibleProbsCalibrator (regime-aware copula via kernel)
-  customer_profile.py     – CustomerProfiler (per-borrower risk report + watchlist)
-  __init__.py             – Re-exports all public symbols; read this for the full API
+  agents.py                  – RiskAgentAPI (AI agent entry point) + AgentResult, AgentError
+  loaders.py                 – Real-data ingestion: ColumnMapping, load_persons/transactions, validation, reindex
+  factor_copula.py           – FactorCopula (Vasicek factor model, scales to 10M+) + build_factor_id
+  config.py                  – Dataclass configs (NetworkConfig, CopulaConfig, RiskConfig, …)
+  data_generator.py          – generate_network() → (persons_df, transactions_df)
+  graph_features.py          – TransactionGraph  → correlation matrix, network stats
+  copula_model.py            – CopulaDefaultModel (5 copula types) + compare_copulas()
+  risk_metrics.py            – RiskAnalyzer, PortfolioRiskMetrics, FraudRingDetector
+  pd_model.py                – IndividualPDModel (logistic / gradient boosting)
+  client_value_metrics.py    – ClientValueCalculator (Sharpe, RAROC, client segments)
+  rating_engine.py           – RatingEngine (PD → AAA…Default + migration matrix)
+  structural_pd.py           – StructuralPDModel (Merton structural PD, proxy for retail)
+  flexible_probs.py          – FlexibleProbsCalibrator (regime-aware copula via kernel)
+  customer_profile.py        – CustomerProfiler (per-borrower risk report + watchlist)
+  risk_adjusted_metrics.py   – RiskRatioCalculator + metric registry (CoV/RAROC/Sortino family)
+  metric_comparison.py       – MetricComparator (rank-corr, disagreements, divergence flags)
+  __init__.py                – Re-exports all public symbols; read this for the full API
 
-main.py                   – 13-step end-to-end pipeline (entry point)
-test_copula_framework.py  – 23 unit tests; run with: python test_copula_framework.py
-debug.py                  – Quick one-off diagnostic helpers (see below)
-requirements.txt          – pip dependencies
-output/                   – Generated PNGs + CSVs (git-ignored in production)
+main.py                      – 13-step pipeline + STEP 8b (risk-adjusted metrics)
+test_copula_framework.py     – 36 unit tests; run with: python test_copula_framework.py
+generate_presentation_ru.py  – Russian-language presentation generator
+debug.py                     – Quick one-off diagnostic helpers (see below)
+generate_presentation.py     – Generates output/presentation.html from pipeline outputs
+requirements.txt             – pip dependencies
+AGENTS.md                    – AI agent contract: entry points, invariants, common mistakes
+PROMPTS.md                   – Ready-to-use system prompts for 4 agent personas
+RISK_RATIO_PLAN.md           – Implementation plan for the metric family (reference)
+output/                      – Generated PNGs + CSVs (git-ignored in production)
 ```
 
 ---
@@ -92,6 +120,9 @@ output/                   – Generated PNGs + CSVs (git-ignored in production)
 
 | I want to... | Go to |
 |---|---|
+| Use the AI agent API | `src/agents.py:RiskAgentAPI` |
+| Get a system prompt for an agent persona | `PROMPTS.md` |
+| Check agent invariants and common mistakes | `AGENTS.md` |
 | Change default PD thresholds | `src/rating_engine.py:PD_THRESHOLDS` |
 | Add a new copula type | `src/copula_model.py:CopulaDefaultModel.SUPPORTED_COPULAS` → add `_<type>_copula()` and update `simulate()` dispatch |
 | Change portfolio metrics (VaR, ES) | `src/risk_metrics.py # SECTION: PORTFOLIO METRICS` |
@@ -102,13 +133,21 @@ output/                   – Generated PNGs + CSVs (git-ignored in production)
 | Add a new customer profile field | `src/customer_profile.py:CustomerRiskProfile` dataclass + `CustomerProfiler._build_profile()` |
 | Change watchlist criteria | `src/customer_profile.py:CustomerProfiler.watchlist()` |
 | Add a new output chart | `main.py` between `# STEP 13` blocks |
+| Add a new risk-adjusted metric | `src/risk_adjusted_metrics.py` — decorate with `@register_metric("name")` |
+| Change metric knobs (hurdle rate, capital ratio) | `src/config.py:RiskConfig` |
+| See which metrics agree/disagree on a population | `MetricComparator.rank_correlation()` or `RiskAgentAPI.rank_metrics()` |
+| Find borrowers where RAROC and Sortino diverge | `MetricComparator.divergence_flags()` or `RiskAgentAPI.flag_divergences()` |
+| Aggregate metrics by any dimension | `RiskRatioCalculator.by_segment(col)` — uses block-sum of loss-cov; never average per-borrower ratios |
+| Change agent API response schema | `src/agents.py:AgentResult` dataclass |
+
+**Additivity invariant:** `E[Loss]`, `E[Profit]`, and `Capital` are additive across borrowers. `Var(Loss_S)` for segment S is the block-sum of `loss_cov[np.ix_(S,S)]`. A segment metric is ALWAYS computed from these aggregates, never as a weighted average of per-borrower metrics (incorrect under correlation).
 
 ---
 
 ## How to add a test
 
 Tests live in `test_copula_framework.py`. Each test is a standalone function `test_<name>(...)` that
-prints `"Test NN: <description>... PASSED"`. Add your function, then call it from the `if __name__ == "__main__"` block at the bottom. The total count in the summary line must match.
+prints `"Test NN: <description>... PASSED"`. Add your function, then call it from the `if __name__ == "__main__"` block at the bottom. The total count in the summary line must match (currently 30).
 
 Pattern:
 ```python

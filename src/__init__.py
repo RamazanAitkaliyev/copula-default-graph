@@ -1,43 +1,53 @@
 """
-Copula Default Graph - Network-Based Credit Risk Analysis
+Copula Default Graph  —  Network-Based Credit Risk Framework
+=============================================================
 
-A framework for analyzing credit default risk using:
-- Individual probability of default (PD) from features
-- Transaction network graphs
-- Copula dependency modeling
-- Multi-level risk metrics (individual, group, portfolio)
+AGENT QUICK-START (read AGENTS.md for the full contract)
+---------------------------------------------------------
+For AI agents, the recommended entry point is RiskAgentAPI:
 
-Key Questions Answered:
-1. Who is individually risky? (marginal PD)
-2. Who is dangerous to others? (systemic importance)
-3. Who is vulnerable to others? (contagion vulnerability)
-4. What is the portfolio tail risk? (VaR, ES with dependencies)
+    from src.agents import RiskAgentAPI
 
-Main Components:
-- data_generator: Synthetic network generation (1000 persons, 3 cities)
-- graph_features: Transaction graph analysis and visualization
-- copula_model: Joint default probability modeling (Clayton copula)
-- risk_metrics: Comprehensive risk analysis at all levels
+    api = RiskAgentAPI()
+    api.run_pipeline()                      # runs all 13 steps (~30-60s)
 
-Usage:
-    from src import generate_network, TransactionGraph
-    from src import CopulaDefaultModel, RiskAnalyzer
+    r = api.query_borrower(776)             # full risk profile
+    r = api.segment_metrics("city_name")    # metrics by city
+    r = api.flag_divergences()              # RAROC vs Sortino early warnings
+    r = api.run_stress(pd_multiplier=2.0)   # stress scenario
+    r = api.portfolio_summary()             # VaR / ES / HHI
 
-    # Generate data
-    persons, transactions = generate_network(seed=42)
+    print(r.summary)    # human-readable interpretation
+    print(r.data)       # JSON-safe structured result
+    print(r.warnings)   # non-fatal issues to mention
 
-    # Build graph
-    graph = TransactionGraph(transactions, persons)
+FRAMEWORK OVERVIEW
+------------------
+Three-layer architecture:
 
-    # Fit copula
-    copula = CopulaDefaultModel('clayton')
-    corr_matrix = graph.get_correlation_matrix()
-    copula.fit(persons['base_pd'].values, corr_matrix)
+  Layer 1 — Graph + PD model
+    generate_network()       → persons + transactions DataFrames
+    TransactionGraph         → correlation matrix + network features
+    IndividualPDModel        → model_pd per borrower (GBM, AUC-validated)
 
-    # Analyze risks
-    analyzer = RiskAnalyzer(copula, graph, persons)
-    individual_risks = analyzer.compute_individual_risks()
-    portfolio_risks = analyzer.compute_portfolio_risks()
+  Layer 2 — Copula + loss covariance
+    CopulaDefaultModel       → joint default probability matrix P(D_i ∩ D_j)
+    RiskRatioCalculator      → loss-covariance matrix + 7 risk-adjusted metrics
+
+  Layer 3 — Analytics + reports
+    RiskAnalyzer             → VaR, ES, contagion scores, stress test
+    MetricComparator         → rank correlation + divergence flags
+    RatingEngine             → PD → AAA…Default + migration probabilities
+    StructuralPDModel        → Merton second signal + early warnings
+    FlexibleProbsCalibrator  → regime-aware copula calibration
+    CustomerProfiler         → per-borrower one-page risk report
+
+KEY INVARIANT (never violate):
+  Segment metrics MUST use block-sum of loss_cov matrix — NEVER average
+  per-borrower metric values. Use calc.by_segment(col), not df.groupby(col).mean().
+
+For full invariant list and common-mistake guide: see AGENTS.md.
+For ready-to-use agent system prompts: see PROMPTS.md.
 """
 
 from .data_generator import generate_network, CityConfig, get_summary_stats
@@ -50,6 +60,26 @@ from .rating_engine import RatingEngine, RatingProfile, PortfolioRatingDistribut
 from .structural_pd import StructuralPDModel, MertonParams, compute_proxy_merton_pd
 from .flexible_probs import FlexibleProbsCalibrator, RegimeAdjustedCopula, RegimeState, build_calibrator_from_portfolio
 from .customer_profile import CustomerProfiler, CustomerRiskProfile
+from .risk_adjusted_metrics import (
+    RiskRatioCalculator,
+    MetricInputs,
+    available_metrics,
+    register_metric,
+    compute_metric,
+)
+from .metric_comparison import MetricComparator
+from .agents import RiskAgentAPI, AgentResult, AgentError
+from .loaders import (
+    ColumnMapping,
+    DataValidationError,
+    load_persons,
+    load_transactions,
+    validate_persons,
+    validate_transactions,
+    reindex_to_contiguous,
+    describe_persons,
+)
+from .factor_copula import FactorCopula, FactorCopulaParams, build_factor_id
 from .config import (
     NetworkConfig,
     CopulaConfig,
@@ -98,6 +128,30 @@ __all__ = [
     # Customer profiles
     'CustomerProfiler',
     'CustomerRiskProfile',
+    # Risk-adjusted metric family
+    'RiskRatioCalculator',
+    'MetricInputs',
+    'available_metrics',
+    'register_metric',
+    'compute_metric',
+    'MetricComparator',
+    # Agent-facing API
+    'RiskAgentAPI',
+    'AgentResult',
+    'AgentError',
+    # Data loading & validation
+    'ColumnMapping',
+    'DataValidationError',
+    'load_persons',
+    'load_transactions',
+    'validate_persons',
+    'validate_transactions',
+    'reindex_to_contiguous',
+    'describe_persons',
+    # Factor copula (scales to 10M+)
+    'FactorCopula',
+    'FactorCopulaParams',
+    'build_factor_id',
     # Configuration
     'NetworkConfig',
     'CopulaConfig',

@@ -1,14 +1,88 @@
 """
-Client Value Metrics with Risk Adjustment
+Client Value Metrics with Risk Adjustment  (src/client_value_metrics.py)
+=========================================================================
 
-Creates a "Client Sharpe Ratio" and related metrics:
-- Risk-adjusted client value (RACV)
-- Client RAROC (Risk-Adjusted Return on Capital)
-- Portfolio optimization for client selection
-- Expected profit accounting for default risk
+PURPOSE
+-------
+Computes risk-adjusted client value metrics using transaction-based revenue
+and exposure estimates. The critical output is the enriched persons DataFrame
+with 'estimated_revenue' and 'exposure_at_default' columns that feed
+RiskRatioCalculator with realistic inputs.
 
-Key insight: Not all revenue is equal - high-revenue clients with high
-default risk may be less valuable than moderate-revenue low-risk clients.
+AGENT ENTRY POINT
+-----------------
+Preferred: use RiskAgentAPI which runs ClientValueCalculator internally.
+Direct use (STEP 8 in pipeline):
+    client_calc = ClientValueCalculator(copula, persons, transactions, lgd=0.45)
+    metrics_df = client_calc.compute_contagion_adjusted_sharpe()
+
+    # After this call, client_calc.persons has:
+    #   'estimated_revenue'    — transaction-volume-based revenue estimate
+    #   'exposure_at_default'  — realistic EAD (range: 820–79815 for 1000 borrowers)
+
+    # Pass to RiskRatioCalculator:
+    ead = client_calc.persons['exposure_at_default'].values
+    calc = RiskRatioCalculator(copula, client_calc.persons, exposures=ead)
+
+# AGENT: ALWAYS use client_calc.persons for RiskRatioCalculator, NOT the original
+#   persons DataFrame. The original persons has income-normalised EAD (~0.18–4.83)
+#   which produces revenue = EAD × 0.02 ≈ 0.003–0.097, far below expected_loss,
+#   causing 66% of borrowers to show negative profit. This makes all signed metrics
+#   (RAROC, Sortino, Sharpe) meaningless for ranking.
+
+PRECONDITIONS
+-------------
+  - copula must be fitted.
+  - transactions must have: sender_id, receiver_id, amount.
+  - persons must have: person_id, income (used for CLTV proxy).
+
+KEY OUTPUTS
+-----------
+  compute_contagion_adjusted_sharpe() → pd.DataFrame
+    Columns: person_id, expected_revenue, expected_loss, expected_profit,
+             client_sharpe, raroc, cltv_risk_adjusted, contagion_score,
+             contagion_adjusted_loss, contagion_adjusted_sharpe
+
+    client_sharpe = (expected_profit − rf × expected_revenue) / σ(profit)
+    # NOTE: This 'client_sharpe' uses the σ of individual profit stream,
+    #   not the copula-aware loss covariance. For the copula-aware version
+    #   use RiskRatioCalculator.metric('sortino_copula').
+
+  segment_clients() → pd.DataFrame
+    BCG matrix segmentation:
+      'Stars'          — high revenue, high profit margin
+      'Cash Cows'      — high revenue, lower margin
+      'Question Marks' — low revenue, high growth potential
+      'Dogs'           — low revenue, low margin
+
+  client_ranking(method='contagion') → pd.DataFrame
+    Sorted by contagion_adjusted_sharpe (contagion method) or client_sharpe.
+
+  self.persons → pd.DataFrame
+    The enriched persons DataFrame with estimated_revenue and exposure_at_default.
+    # AGENT: Always use this, not the constructor argument.
+
+REVENUE AND EAD COMPUTATION
+----------------------------
+  estimated_revenue = transaction_volume × revenue_rate_proxy
+    where transaction_volume = sum of amounts sent/received per person
+    and   revenue_rate_proxy ≈ 0.02–0.05 (fee income fraction)
+
+  exposure_at_default = income-based credit line estimate
+    Proxy: 3–10 × monthly income (similar to credit limit underwriting rules)
+
+  Both are stored in self.persons after compute_contagion_adjusted_sharpe() runs.
+
+CONTAGION ADJUSTMENT
+---------------------
+  contagion_score = weighted average PD uplift from neighbours' potential defaults
+  contagion_adjusted_loss = expected_loss × (1 + contagion_score)
+  contagion_adjusted_sharpe = (expected_profit − rf×revenue) / σ(contagion_adjusted_loss)
+
+  # AGENT: The contagion_adjusted_sharpe penalises borrowers whose neighbours
+  #   have high default probability, even if the borrower's own PD is low.
+  #   This is distinct from sortino_copula which uses the copula joint probability.
+  #   The two signals are complementary — use both.
 """
 
 import numpy as np

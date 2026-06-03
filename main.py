@@ -250,6 +250,103 @@ def main() -> None:
                        ].to_string(index=False))
 
     # ------------------------------------------------------------------
+    # STEP 8b — RISK-ADJUSTED METRIC FAMILY
+    # ------------------------------------------------------------------
+    _section("[8b/13] Risk-adjusted metric family — CoV / RAROC / Sortino")
+    try:
+        from src.risk_adjusted_metrics import RiskRatioCalculator, available_metrics
+        from src.metric_comparison import MetricComparator
+
+        # Use ClientValueCalculator's enriched persons so revenue and EAD are
+        # transaction-based (realistic) rather than the 2%-of-EAD fallback proxy.
+        _persons_8b = client_calc.persons  # has estimated_revenue + exposure_at_default
+        _ead_8b = _persons_8b["exposure_at_default"].values
+
+        calc = RiskRatioCalculator(
+            copula, _persons_8b,
+            exposures=_ead_8b,
+            lgd=0.45,
+            hurdle_rate=0.10,
+            risk_free_rate=0.02,
+        )
+
+        print(f"  Available metrics: {available_metrics()}\n")
+
+        # ── per-segment tables ──────────────────────────────────────────
+        for seg_col in ("city_name", "risk_archetype"):
+            print(f"  Metrics by {seg_col}:")
+            seg_df = calc.by_segment(
+                seg_col,
+                metrics=["coefficient_of_variation_copula", "raroc", "sortino_copula"],
+            )
+            display_cols = ["segment", "n", "exposure_share",
+                            "coefficient_of_variation_copula", "raroc",
+                            "sortino_copula", "diversification_ratio"]
+            print(seg_df[[c for c in display_cols if c in seg_df.columns]].to_string(index=False))
+            print()
+
+            csv_path = os.path.join("output", f"metric_by_{seg_col}.csv")
+            seg_df.to_csv(csv_path, index=False)
+            print(f"  Saved: {csv_path}")
+
+        # ── rank correlation (segment level — borrower level is trivially all-1.0
+        #    because L0==L1 for single borrowers; group_id gives 4+ segments) ───
+        comp = MetricComparator(calc)
+        # Rank correlation: use borrowers for the full population signal
+        # (segment-level on only 3-4 groups produces trivially monotone rankings;
+        #  borrower-level L0==L1 so CoV variants agree, but RAROC vs Sortino can differ)
+        rc = comp.rank_correlation(level="borrower")
+        print("\n  Metric rank correlation (Spearman, borrower level):")
+        print("  (full matrix saved to metric_rank_correlation.csv)\n")
+        short = {"coefficient_of_variation": "CoV_L0",
+                 "coefficient_of_variation_copula": "CoV_L1",
+                 "raroc": "RAROC", "sharpe_indep": "Sharpe",
+                 "sortino_copula": "Sortino_L1", "sortino_indep": "Sortino_L0"}
+        names_s = [short.get(c, c) for c in rc.columns]
+        for i, row_name in enumerate(names_s):
+            for j, col_name in enumerate(names_s):
+                if j > i:
+                    print(f"  {row_name:12s} vs {col_name:12s}: {rc.iloc[i,j]:+.3f}")
+        rc.to_csv(os.path.join("output", "metric_rank_correlation.csv"))
+
+        # ── RAROC vs Sortino divergence flags ──────────────────────────
+        flags = comp.divergence_flags(z_threshold=1.5)
+        print(f"\n  Divergence flags (RAROC vs sortino_copula, z≥1.5): {len(flags)} borrowers")
+        if len(flags) > 0:
+            print(flags.head(10).to_string(index=False))
+        flags.to_csv(os.path.join("output", "metric_divergence_flags.csv"), index=False)
+
+        # ── comparison bar chart ────────────────────────────────────────
+        try:
+            import matplotlib.pyplot as plt
+            seg_arch = calc.by_segment(
+                "risk_archetype",
+                metrics=["coefficient_of_variation_copula", "raroc", "sortino_copula"],
+            )
+            metric_cols = ["coefficient_of_variation_copula", "raroc", "sortino_copula"]
+            fig, axes = plt.subplots(1, len(metric_cols), figsize=(14, 4))
+            for ax, m in zip(axes, metric_cols):
+                vals = seg_arch[m].fillna(0)
+                segs = seg_arch["segment"].astype(str)
+                colors = plt.cm.RdYlGn_r(np.linspace(0.2, 0.8, len(segs)))
+                ax.barh(segs, vals, color=colors)
+                ax.set_title(m.replace("_", "\n"), fontsize=8)
+                ax.set_xlabel("value")
+            plt.suptitle("Risk-Adjusted Metrics by Risk Archetype", fontsize=10)
+            plt.tight_layout()
+            chart_path = os.path.join("output", "metric_comparison.png")
+            plt.savefig(chart_path, dpi=120, bbox_inches="tight")
+            plt.close()
+            print(f"\n  Saved: {chart_path}")
+        except Exception as chart_err:
+            print(f"  WARNING: metric comparison chart failed: {chart_err}")
+
+    except Exception as e:
+        import traceback
+        print(f"  WARNING: STEP 8b (risk-adjusted metrics) failed: {e}")
+        traceback.print_exc()
+
+    # ------------------------------------------------------------------
     # 9. RATING ENGINE
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -341,6 +438,13 @@ def main() -> None:
     # ------------------------------------------------------------------
     _section("[12/13] Customer profiles — per-borrower risk reports")
     profiler = CustomerProfiler(early_warning_threshold=0.05)
+    try:
+        from src.risk_adjusted_metrics import RiskRatioCalculator as _RRC
+        # Reuse the CVC-enriched persons so profile metrics match STEP 8b
+        _ead_profile = client_calc.persons["exposure_at_default"].values
+        _rrCalc = _RRC(copula, client_calc.persons, exposures=_ead_profile, lgd=0.45)
+    except Exception:
+        _rrCalc = None
     profiler.fit(
         persons=persons_enriched,
         transactions=transactions,
@@ -351,6 +455,7 @@ def main() -> None:
         structural_model=persons_enriched,
         client_value_calc=client_calc,
         individual_risks=individual_risks,
+        risk_ratio_calc=_rrCalc,
     )
 
     # Print profiles for top 3 riskiest borrowers

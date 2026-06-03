@@ -1,23 +1,90 @@
 """
-Copula-Based Default Dependency Model (Optimized)
+Copula-Based Default Dependency Model  (src/copula_model.py)
+=============================================================
 
-Models joint default probabilities using copulas:
-- Marginal PDs from individual features
-- Correlation structure from network (graph)
-- Joint and conditional default probabilities
-- Monte Carlo simulation of correlated defaults
+PURPOSE
+-------
+Models joint default probabilities by combining marginal PDs (from the PD model)
+with the network correlation matrix (from the transaction graph) via a copula.
+The output is the full joint default probability matrix P(D_i ∩ D_j) used
+by RiskRatioCalculator to build the loss-covariance matrix.
 
-Supported copula types:
-- Gaussian: No tail dependence (normal times)
-- Student-t: Symmetric tail dependence (stress scenarios)
-- Clayton: Lower tail dependence (defaults cluster in crisis)
-- Gumbel: Upper tail dependence (survival clustering)
-- Frank: No tail dependence, symmetric (moderate dependence)
+AGENT ENTRY POINT
+-----------------
+Preferred: use RiskAgentAPI which handles copula fitting internally.
+Direct use:
+    copula = CopulaDefaultModel('clayton')
+    copula.fit(persons['model_pd'].values, corr_matrix)
+    # Now copula.is_fitted == True
 
-Optimizations:
-- Vectorized simulations (no Python loops)
-- Gamma frailty method for Clayton copula
-- Sampled pairwise calculations for large networks
+    J = copula.joint_default_probability()   # (n,n) matrix — used by RiskRatioCalculator
+    defaults = copula.simulate_defaults(n_sim=10_000)  # (n_sim, n) binary matrix
+
+PRECONDITIONS
+-------------
+  - marginal_pds must be in [0, 1]. Values outside this range raise ValueError.
+  - correlation_matrix must be PSD with diagonal = 1.
+    Call TransactionGraph.get_correlation_matrix() which enforces this.
+    # AGENT: Never pass a raw numpy eye(n) or ad-hoc matrix — always use
+    #   _nearest_psd() projection to guarantee PSD property.
+  - fit() must be called before any query method.
+    Check copula.is_fitted before constructing RiskRatioCalculator.
+
+COPULA TYPES — WHEN TO USE EACH
+---------------------------------
+  'clayton'   Lower-tail dependence λ_L = 2^(-1/θ).
+              RECOMMENDED for default modelling: defaults cluster in crises
+              (the left tail). Industry standard post-2008.
+              # AGENT: Always use 'clayton' unless you have a specific reason.
+
+  'gaussian'  No tail dependence.
+              Use only for calm-market scenarios or as a baseline comparison.
+              # AGENT: Do NOT use for stress tests — it systematically
+              #   underestimates simultaneous defaults in a crisis.
+
+  'student_t' Symmetric tail dependence.
+              Useful when you also care about joint survival (both survive).
+              Requires nu parameter (degrees of freedom, default=4).
+
+  'gumbel'    Upper-tail dependence. Rare in credit; models joint survival.
+
+  'frank'     No tail dependence, symmetric. Mid-range alternative to Gaussian.
+
+KEY OUTPUTS
+-----------
+  copula.params.theta        — fitted dependence parameter (> 0 for Clayton)
+  copula.tail_dependence()   — lower-tail dependence λ_L ∈ [0, 1]
+  copula.marginal_pds        — n-vector of fitted PDs (do NOT modify directly)
+  copula.joint_default_probability() → (n,n) matrix of P(D_i ∩ D_j)
+  copula.simulate_defaults(n_sim)    → (n_sim, n) binary default matrix
+
+INVARIANTS
+----------
+# AGENT: INV-1 — copula.marginal_pds must stay in [0,1] at all times.
+#   Never do: copula.marginal_pds *= 2.0  (for stress tests)
+#   Always do: use analyzer._stressed_copula() context manager.
+
+# AGENT: INV-2 — copula.correlation_matrix must be PSD with diag=1.
+#   Never modify it directly. Always call _nearest_psd() after any change.
+
+# AGENT: Do NOT call fit() a second time on the same object.
+#   It overwrites params in-place. Create a new CopulaDefaultModel instance
+#   for a different calibration.
+
+OPTIMIZATIONS (internal — agents do not need to call these)
+-------------------------------------------------------------
+  - Vectorized simulation: gamma frailty method for Clayton (no Python loops)
+  - joint_default_probability() uses sampled pairwise calculation for n > 500
+  - Cholesky decomposition is cached after fit()
+
+FORMULA REFERENCE
+-----------------
+  Clayton:  C(u,v;θ) = (u^{-θ} + v^{-θ} - 1)^{-1/θ}    θ > 0
+  λ_L = 2^{-1/θ}
+  Simulation (gamma frailty):
+    V ~ Gamma(1/θ, 1)
+    U_i = (1 - log(E_i)/V)^{-1/θ}   where E_i ~ Exp(1)
+    D_i = 1  iff  Φ^{-1}(U_i) ≤ Φ^{-1}(PD_i)
 """
 
 from __future__ import annotations
@@ -524,6 +591,103 @@ class CopulaDefaultModel:
                     joint_pd[j, i] = jp
 
         return joint_pd
+
+    def joint_default_probability_block(self, idx: np.ndarray) -> np.ndarray:
+        """
+        Compute the m×m block of joint default probabilities for indices `idx`.
+
+        This is the SCALE-SAFE accessor used by RiskRatioCalculator for large
+        portfolios: it computes P(D_a ∩ D_b) for a,b ∈ idx WITHOUT ever building
+        the full n×n matrix. Only m×m memory is used (m = len(idx)).
+
+        For the Clayton copula (the production default) this is fully vectorized
+        over the block. For other copula types it falls back to pairwise
+        evaluation within the block (acceptable because non-Clayton copulas are
+        only used at small scale / for comparison).
+
+        Parameters
+        ----------
+        idx : array-like of int
+            Borrower indices defining the block (e.g. one segment's members).
+
+        Returns
+        -------
+        np.ndarray of shape (m, m)
+            Block where [a,b] = P(D_{idx[a]} ∩ D_{idx[b]}); diagonal = marginal PD.
+        """
+        self._check_fitted()
+        idx = np.asarray(idx, dtype=int)
+        m = len(idx)
+        if m == 0:
+            return np.zeros((0, 0))
+
+        u = self.marginal_pds[idx]                       # (m,)
+        rho = self.correlation_matrix[np.ix_(idx, idx)]  # (m, m)
+
+        if self.copula_type == 'clayton':
+            block = self._clayton_block(u, rho)
+        elif self.copula_type in ('gumbel', 'frank'):
+            block = self._archimedean_block_generic(u, rho, idx)
+        else:
+            # gaussian / student_t: pairwise (small-scale comparison use only).
+            block = np.empty((m, m), dtype=float)
+            for a in range(m):
+                block[a, a] = u[a]
+                for b in range(a + 1, m):
+                    jp = self.joint_default_probability(int(idx[a]), int(idx[b]))
+                    block[a, b] = jp
+                    block[b, a] = jp
+            return block
+
+        # Exact marginals on the diagonal.
+        np.fill_diagonal(block, u)
+        return block
+
+    def _clayton_block(self, u: np.ndarray, rho: np.ndarray) -> np.ndarray:
+        """
+        Vectorized Clayton C(u_a, u_b; θ_ab) over a block.
+
+        θ_ab = base_theta · (1 + ρ_ab) / 2, clipped to ≥ 0.01, matching the
+        per-pair formula in joint_default_probability(). All operations are
+        elementwise on the m×m block — no Python loop.
+        """
+        m = len(u)
+        theta = np.maximum(self.params.theta * (1.0 + rho) / 2.0, 0.01)  # (m,m)
+        ua = u[:, None]
+        ub = u[None, :]
+        # Clayton: (u_a^-θ + u_b^-θ - 1)^(-1/θ), with the same edge cases as scalar.
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            inner = np.power(ua, -theta) + np.power(ub, -theta) - 1.0
+            out = np.power(np.where(inner > 0, inner, np.nan), -1.0 / theta)
+        # Edge cases mirroring _clayton_copula:
+        out = np.where(inner <= 0, 0.0, out)
+        # u<=0 → 0 ; u>=1 → min path handled by comonotone (= the other margin)
+        zero_mask = (ua <= 0) | (ub <= 0)
+        out = np.where(zero_mask, 0.0, out)
+        out = np.where(ua >= 1, np.broadcast_to(ub, out.shape), out)
+        out = np.where(ub >= 1, np.broadcast_to(ua, out.shape), out)
+        # Fallback for any remaining non-finite to independence product.
+        bad = ~np.isfinite(out)
+        if bad.any():
+            out = np.where(bad, ua * ub, out)
+        return out
+
+    def _archimedean_block_generic(
+        self, u: np.ndarray, rho: np.ndarray, idx: np.ndarray
+    ) -> np.ndarray:
+        """
+        Block for Gumbel/Frank via pairwise calls (these are not the production
+        copula; used for comparison at modest scale). Still avoids the full n×n.
+        """
+        m = len(u)
+        block = np.empty((m, m), dtype=float)
+        for a in range(m):
+            block[a, a] = u[a]
+            for b in range(a + 1, m):
+                jp = self.joint_default_probability(int(idx[a]), int(idx[b]))
+                block[a, b] = jp
+                block[b, a] = jp
+        return block
 
     def contagion_risk_score(self, n_samples: int = 100) -> np.ndarray:
         """

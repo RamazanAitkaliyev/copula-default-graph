@@ -96,11 +96,16 @@ class CustomerRiskProfile:
     contagion_adjusted_sharpe: float
     segment: str                       # Stars / Cash Cows / Question Marks / Dogs
 
+    # Risk-adjusted metrics (from RiskRatioCalculator; 0.0 if not available)
+    coefficient_of_variation: float = 0.0
+    profile_raroc: float = 0.0         # named profile_raroc to avoid shadowing existing raroc field
+    sortino_copula: float = 0.0
+
     # Composite
-    composite_risk_score: float
-    risk_tier: str                     # low / medium / high / critical
-    recommended_action: str
-    narrative: str
+    composite_risk_score: float = 0.0
+    risk_tier: str = "low"             # low / medium / high / critical
+    recommended_action: str = ""
+    narrative: str = ""
 
     def to_dict(self) -> dict:
         d = {k: v for k, v in self.__dict__.items() if k != "top_neighbours"}
@@ -233,6 +238,7 @@ class CustomerProfiler:
         structural_model=None,
         client_value_calc=None,
         individual_risks: Optional[pd.DataFrame] = None,
+        risk_ratio_calc=None,
     ) -> "CustomerProfiler":
         """
         Attach all model outputs. Any component can be None — the profiler
@@ -249,6 +255,7 @@ class CustomerProfiler:
         structural_model : StructuralPDModel.fit_transform() result DataFrame (optional)
         client_value_calc: fitted ClientValueCalculator (optional)
         individual_risks : DataFrame from RiskAnalyzer.compute_individual_risks() (optional)
+        risk_ratio_calc  : fitted RiskRatioCalculator (optional); populates CoV/RAROC/Sortino
         """
         self._persons = persons.copy().reset_index(drop=True)
         self._transactions = transactions
@@ -275,6 +282,16 @@ class CustomerProfiler:
                 logger.warning("Client value computation failed: %s", e)
                 self._client_metrics = None
                 self._segments = None
+
+        # Pre-compute per-borrower metric table from RiskRatioCalculator if provided
+        self._metric_df: Optional[pd.DataFrame] = None
+        if risk_ratio_calc is not None:
+            try:
+                self._metric_df = risk_ratio_calc.per_borrower(
+                    metrics=["coefficient_of_variation", "raroc", "sortino_copula"]
+                )
+            except Exception as e:
+                logger.warning("Risk ratio per-borrower computation failed: %s", e)
 
         # Cache adjacency for neighbour lookups
         self._adj_binary = graph.adj_binary   # (n, n)
@@ -462,6 +479,29 @@ class CustomerProfiler:
             "risk_tier": str(r.get("risk_tier", "low")),
         }
 
+    def _metric_data(self, person_id: int) -> dict:
+        """Look up CoV / RAROC / Sortino from pre-computed per-borrower metric table."""
+        defaults = {
+            "coefficient_of_variation": 0.0,
+            "profile_raroc": 0.0,
+            "sortino_copula": 0.0,
+        }
+        if self._metric_df is None:
+            return defaults
+        row = self._metric_df[self._metric_df["person_id"] == person_id]
+        if row.empty:
+            return defaults
+        r = row.iloc[0]
+        import math
+        def safe(val, fallback=0.0):
+            v = float(r.get(val, fallback))
+            return fallback if math.isnan(v) else round(v, 5)
+        return {
+            "coefficient_of_variation": safe("coefficient_of_variation"),
+            "profile_raroc": safe("raroc"),
+            "sortino_copula": safe("sortino_copula"),
+        }
+
     # ── public API ────────────────────────────────────────────────────────────
 
     def get_profile(self, person_id: int) -> CustomerRiskProfile:
@@ -478,6 +518,7 @@ class CustomerProfiler:
         network = self._network_data(person_id)
         biz     = self._business_data(person_id)
         comp    = self._composite_data(person_id)
+        metrics = self._metric_data(person_id)
 
         early_warning = merton["pd_signal_divergence"] >= self.early_warning_threshold
 
@@ -493,6 +534,7 @@ class CustomerProfiler:
             **network,
             **biz,
             **comp,
+            **metrics,
             "early_warning":        early_warning,
             "recommended_action":   action,
         }
@@ -565,6 +607,22 @@ class CustomerProfiler:
             f"  RAROC           :  {p.raroc:.3f}",
             f"  CLTV (adj)      :  {p.cltv_risk_adjusted:,.2f}",
             f"  Contagion Sharpe:  {p.contagion_adjusted_sharpe:.3f}",
+            "",
+            divider,
+            "  RISK-ADJUSTED METRICS",
+            divider,
+        ]
+
+        _na = "n/a"
+        def _fmt(v, fmt=".4f"):
+            return format(v, fmt) if v != 0.0 else _na
+        lines += [
+            f"  CoV (copula)    :  {_fmt(p.coefficient_of_variation)}",
+            f"  RAROC (ratio)   :  {_fmt(p.profile_raroc)}",
+            f"  Sortino (copula):  {_fmt(p.sortino_copula)}",
+        ]
+
+        lines += [
             "",
             divider,
             "  COMPOSITE ASSESSMENT",

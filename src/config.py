@@ -1,11 +1,73 @@
 """
-Configuration classes for the Copula Default Graph framework.
+Configuration  (src/config.py)
+==============================
 
-Provides centralized configuration for:
-- Network generation parameters
-- Copula model settings
-- Risk analysis parameters
-- Visualization options
+PURPOSE
+-------
+Single source of truth for all tunable parameters in the framework.
+Every class is a frozen dataclass with __post_init__ validation.
+
+AGENT ENTRY POINT
+-----------------
+    from src.config import PipelineConfig, RiskConfig, DEFAULT_CONFIG
+
+    # Override specific settings:
+    cfg = PipelineConfig(
+        risk=RiskConfig(hurdle_rate=0.12, lgd=0.35, capital_ratio=0.10)
+    )
+    api = RiskAgentAPI(config=cfg)
+
+    # Convert to/from dict (for JSON storage):
+    d = cfg.to_dict()
+    cfg2 = PipelineConfig.from_dict(d)
+
+KEY PARAMETERS AND THEIR EFFECTS
+----------------------------------
+  RiskConfig
+    hurdle_rate (default 0.10)
+      Used in Sortino/RAROC numerator: E[Profit] − hurdle × Capital.
+      Higher = stricter profitability threshold = more borrowers below hurdle.
+      # AGENT: Changing hurdle_rate changes ALL Sortino and RAROC values.
+      #   Typical range: 0.08 (regulatory minimum) to 0.15 (internal target).
+
+    risk_free_rate (default 0.02)
+      Used in Sharpe numerator: E[Profit] − rf × Revenue.
+      Should reflect current risk-free rate (ECB deposit rate, etc.).
+
+    capital_ratio (default 0.08)
+      Regulatory capital = capital_ratio × EAD.
+      0.08 = Basel II/III standard approach.
+      0.10 = Basel III with capital conservation buffer.
+      # AGENT: Increasing capital_ratio increases Capital, reducing RAROC and Sortino.
+
+    lgd (default 0.45)
+      Loss given default = fraction of EAD lost on default.
+      Lower for secured lending (mortgages: 0.15–0.25).
+      Higher for unsecured (credit cards: 0.60–0.75).
+
+    metric_sim_paths (default 10_000)
+      Monte Carlo paths for sortino_simulated (L2 metric).
+      10k = fast but noisy. 50k = production quality.
+      # AGENT: This parameter only affects sortino_simulated.
+      #   All other metrics are computed analytically, not via simulation.
+
+  CopulaConfig
+    copula_type (default 'clayton')
+      # AGENT: Use 'clayton' for all default modelling. See copula_model.py.
+
+    base_correlation (default 0.05)
+      Minimum pairwise correlation in the network matrix.
+      Higher = more correlated even for unconnected borrowers.
+
+    same_group_boost (default 0.20)
+      Additional correlation for borrowers in the same high-risk group.
+      This is the key driver of fraud ring detection and contagion clustering.
+
+PRE-BUILT CONFIGS
+-----------------
+  DEFAULT_CONFIG       — standard 1000-person, Clayton, 8% capital ratio
+  STRESS_TEST_CONFIG   — higher LGD (0.60), triple PD multiplier
+  LOW_CORRELATION_CONFIG — Gaussian copula, low base correlation (0.02)
 """
 
 from __future__ import annotations
@@ -120,10 +182,29 @@ class RiskConfig:
     contagion_threshold: float = 0.50
     max_contagion_rounds: int = 5
 
+    # Risk-adjusted metric family settings
+    hurdle_rate: float = 0.10           # Required return on capital for Sortino numerator
+    risk_free_rate: float = 0.02        # Risk-free rate for Sharpe-style numerator
+    capital_ratio: float = 0.08         # Fraction of EAD held as regulatory capital
+    metric_sim_paths: int = 10_000      # Monte-Carlo paths for sortino_simulated (L2)
+    default_metrics: tuple = (
+        "coefficient_of_variation_copula",
+        "raroc",
+        "sortino_copula",
+    )
+
     def __post_init__(self) -> None:
         """Validate configuration."""
         if not (0 <= self.lgd <= 1):
             raise ValueError("lgd must be in [0, 1]")
+        if not (0 < self.hurdle_rate < 1):
+            raise ValueError("hurdle_rate must be in (0, 1)")
+        if not (0 <= self.risk_free_rate < 1):
+            raise ValueError("risk_free_rate must be in [0, 1)")
+        if not (0 < self.capital_ratio <= 1):
+            raise ValueError("capital_ratio must be in (0, 1]")
+        if self.metric_sim_paths <= 0:
+            raise ValueError("metric_sim_paths must be positive")
 
         weights_sum = (
             self.marginal_pd_weight +
