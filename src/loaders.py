@@ -120,6 +120,8 @@ class ColumnMapping:
       base_pd              alternative PD column (used if model_pd absent)
       city_id              integer geography code
       city_name            geography label
+      geo_longitude        longitude in degrees [-180, 180] (optional, for geo clusters)
+      geo_latitude         latitude in degrees  [-90, 90]  (optional, for geo clusters)
       income               used for EAD proxy if exposure_at_default absent
       exposure_at_default  EAD (preferred for loss math)
       estimated_revenue    revenue (preferred for profit math)
@@ -137,6 +139,8 @@ class ColumnMapping:
     base_pd: str = "base_pd"
     city_id: str = "city_id"
     city_name: str = "city_name"
+    geo_longitude: str = "geo_longitude"
+    geo_latitude: str = "geo_latitude"
     income: str = "income"
     exposure_at_default: str = "exposure_at_default"
     estimated_revenue: str = "estimated_revenue"
@@ -152,6 +156,7 @@ class ColumnMapping:
         """Return {source_name: canonical_name} for persons columns present in `available`."""
         person_keys = [
             "person_id", "model_pd", "base_pd", "city_id", "city_name",
+            "geo_longitude", "geo_latitude",
             "income", "exposure_at_default", "estimated_revenue",
             "high_risk_group_id", "risk_archetype", "default",
         ]
@@ -482,6 +487,21 @@ def validate_persons(df: pd.DataFrame) -> None:
                     f"Column '{money_col}' has negative values; "
                     f"exposures/revenue must be ≥ 0."
                 )
+
+    # Geo coordinates, if present, must be within valid degree ranges.
+    # NaN is tolerated (those persons simply fall out of geo clustering).
+    if "geo_longitude" in df.columns:
+        lon = pd.to_numeric(df["geo_longitude"], errors="coerce")
+        if ((lon < -180) | (lon > 180)).any():
+            raise DataValidationError(
+                "geo_longitude has values outside [-180, 180]."
+            )
+    if "geo_latitude" in df.columns:
+        lat = pd.to_numeric(df["geo_latitude"], errors="coerce")
+        if ((lat < -90) | (lat > 90)).any():
+            raise DataValidationError(
+                "geo_latitude has values outside [-90, 90]."
+            )
 
 
 # ─── public: transactions ─────────────────────────────────────────────────────
