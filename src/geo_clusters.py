@@ -88,6 +88,8 @@ class GeoClusterer:
 
     # ── fit ─────────────────────────────────────────────────────────────────
     def fit(self, persons: pd.DataFrame) -> "GeoClusterer":
+        """Compute geo cluster labels from persons' coordinates (or city
+        fallback). Stores `labels_`; call `assign`/`summary` afterwards."""
         cfg = self.config
         n = len(persons)
         self._person_ids = (

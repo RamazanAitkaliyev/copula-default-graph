@@ -79,11 +79,15 @@ class ClusterRiskMetrics:
 
     # ── cluster roll-ups (reuse by_segment) ──────────────────────────────────
     def geo_metrics(self) -> pd.DataFrame:
+        """Per-geo-cluster risk metrics (EAD/EL/σ/CoV/RAROC/Sortino) via
+        block-sum loss covariance. Empty frame if no geo column."""
         if self.geo_col not in self.persons.columns:
             return pd.DataFrame()
         return self.calc.by_segment(self.geo_col)
 
     def transfer_metrics(self) -> pd.DataFrame:
+        """Per-transfer-community risk metrics via block-sum loss covariance.
+        Empty frame if no transfer column."""
         if self.transfer_col not in self.persons.columns:
             return pd.DataFrame()
         return self.calc.by_segment(self.transfer_col)
@@ -153,6 +157,8 @@ class ClusterRiskMetrics:
 
     # ── one-shot bundle ──────────────────────────────────────────────────────
     def compute(self) -> ClusterMetricsResult:
+        """Compute and bundle geo metrics, transfer metrics, and the
+        anchor-contagion table in one call."""
         return ClusterMetricsResult(
             geo_metrics=self.geo_metrics(),
             transfer_metrics=self.transfer_metrics(),

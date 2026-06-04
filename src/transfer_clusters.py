@@ -100,6 +100,9 @@ class TransferClusterer:
 
     # ── fit ─────────────────────────────────────────────────────────────────
     def fit(self, persons: pd.DataFrame, transactions: pd.DataFrame) -> "TransferClusterer":
+        """Detect transfer communities and the anchor/dependent structure from
+        the money-flow graph. Stores labels + anchor arrays; call `assign`,
+        `summary`, `anchors_table`, or `subgraph` afterwards."""
         if not (_HAS_NX and _HAS_LOUVAIN):
             raise ImportError(
                 "transfer_clusters requires networkx and python-louvain "
@@ -150,6 +153,9 @@ class TransferClusterer:
 
     # ── assignment / tables ──────────────────────────────────────────────────
     def assign(self, persons: pd.DataFrame) -> pd.DataFrame:
+        """Return a copy of `persons` with transfer_cluster_id plus the anchor
+        columns (anchor_score, is_anchor, anchor_of_cluster, depends_on_anchor,
+        cluster_fragility) added."""
         if self.labels_ is None:
             raise RuntimeError("fit() must be called before assign().")
         out = persons.copy()

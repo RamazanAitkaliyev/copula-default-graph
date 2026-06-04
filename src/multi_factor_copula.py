@@ -99,6 +99,19 @@ class MultiFactorCopula:
         factor_matrix: np.ndarray,
         betas: Union[float, Sequence[float], np.ndarray] = 0.3,
     ) -> "MultiFactorCopula":
+        """
+        Fit the K-factor copula.
+
+        Parameters
+        ----------
+        marginal_pds : (n,) PDs in [0, 1].
+        factor_matrix : (n, K) systematic-factor ids per dimension (e.g. column
+            0 = geo_cluster_id, column 1 = transfer_cluster_id). -1 = "no factor"
+            on that dimension (independent there).
+        betas : scalar, (K,), (n,), or (n, K) factor loadings. Equal values make
+            the dimensions equally important. Must satisfy Σ_k β² < 1 per
+            borrower (positive idiosyncratic variance).
+        """
         pds = np.asarray(marginal_pds, dtype=float)
         n = len(pds)
         fm = np.asarray(factor_matrix)
