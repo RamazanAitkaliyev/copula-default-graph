@@ -1412,13 +1412,171 @@ def test_factor_copula_integration():
     print("PASSED")
 
 
+def test_geo_clusters():
+    """Test 37: geolocation DBSCAN clusters + city fallback + noise isolation."""
+    print("Test 37: geo clusters — DBSCAN, fallback, noise isolation... ", end="")
+    import numpy as np
+    import pandas as pd
+    from src.geo_clusters import GeoClusterer, GeoClusterConfig
+
+    rng = np.random.default_rng(0)
+    centers = [(43.2, 76.9), (51.1, 71.4), (42.3, 69.6)]
+    lat, lon, city = [], [], []
+    for ci, (clat, clon) in enumerate(centers):
+        lat += list(clat + rng.normal(0, 0.01, 30))
+        lon += list(clon + rng.normal(0, 0.01, 30))
+        city += [ci] * 30
+    lat += list(rng.uniform(45, 50, 5)); lon += list(rng.uniform(60, 65, 5)); city += [0] * 5
+    n = len(lat)
+    persons = pd.DataFrame({"person_id": np.arange(n), "city_id": city,
+                            "geo_longitude": lon, "geo_latitude": lat})
+
+    gc = GeoClusterer(GeoClusterConfig(eps_km=5.0, min_samples=5)).fit(persons)
+    labels = gc.assign(persons)["geo_cluster_id"].to_numpy()
+    genuine = np.unique(labels[labels >= 0])
+    assert len(genuine) == 3, f"expected 3 geo clusters, got {len(genuine)}"
+    assert (labels < 0).sum() == 5, "5 scattered points should be isolated as noise"
+    # noise points get UNIQUE negative ids (independent), not all -1
+    assert len(np.unique(labels[labels < 0])) == 5, "noise ids must be unique"
+    summ = gc.summary()
+    assert {"geo_cluster_id", "n_members", "span_km"}.issubset(summ.columns)
+    # city fallback
+    gc2 = GeoClusterer(GeoClusterConfig(level="city")).fit(persons)
+    assert len(np.unique(gc2.labels_)) == 3, "city fallback should give 3 groups"
+    # no coordinates → graceful fallback, no crash
+    gc3 = GeoClusterer().fit(persons[["person_id", "city_id"]])
+    assert gc3.labels_ is not None
+    print("PASSED")
+
+
+def test_transfer_clusters_and_anchors():
+    """Test 38: Louvain communities + anchor/dependent detection (star vs mesh)."""
+    print("Test 38: transfer clusters — communities, anchors, fragility... ", end="")
+    import numpy as np
+    import pandas as pd
+    from src.transfer_clusters import TransferClusterer, TransferClusterConfig
+
+    pids = [0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15]
+    persons = pd.DataFrame({"person_id": pids})
+    tx = [(0, d, 1000.0) for d in [1, 2, 3, 4, 5]]          # star: hub 0 feeds 1..5
+    mesh = [10, 11, 12, 13, 14, 15]
+    tx += [(a, b, 200.0) for a in mesh for b in mesh if a != b]   # mesh: all pay all
+    transactions = pd.DataFrame(tx, columns=["sender_id", "receiver_id", "amount"])
+
+    tc = TransferClusterer(
+        TransferClusterConfig(resolution=1.0, min_cluster_size=3)
+    ).fit(persons, transactions)
+    p2 = tc.assign(persons)
+
+    star_cid = int(p2.loc[p2.person_id == 0, "transfer_cluster_id"].iloc[0])
+    mesh_cid = int(p2.loc[p2.person_id == 10, "transfer_cluster_id"].iloc[0])
+    assert star_cid != mesh_cid, "star and mesh must be different communities"
+    assert bool(p2.loc[p2.person_id == 0, "is_anchor"].iloc[0]), "hub must be anchor"
+    deps = p2.loc[p2.person_id.isin([1, 2, 3, 4, 5]), "depends_on_anchor"].tolist()
+    assert all(d == 0 for d in deps), f"dependents must point to hub 0, got {deps}"
+    star_frag = tc.cluster_fragility_[star_cid]
+    mesh_frag = tc.cluster_fragility_.get(mesh_cid, 0.0)
+    assert star_frag > mesh_frag, "star must be more fragile than mesh"
+    assert star_frag > 0.5, "fully-dependent star fragility should be high"
+    anchors = tc.anchors_table()
+    assert int(anchors.iloc[0]["n_dependents"]) == 5, "hub should have 5 dependents"
+    print("PASSED")
+
+
+def test_multi_factor_copula():
+    """Test 39: multi-factor copula — Σβ²<1, implied corr, block==sim, ordering."""
+    print("Test 39: multi-factor copula — correlation, block, simulation... ", end="")
+    import numpy as np
+    from src.multi_factor_copula import MultiFactorCopula
+
+    rng = np.random.default_rng(0)
+    # (a) Σβ²<1 guard
+    try:
+        MultiFactorCopula().fit(np.array([0.1, 0.1]), np.array([[0, 0], [0, 0]]), betas=0.8)
+        assert False, "should reject Σβ² >= 1"
+    except ValueError:
+        pass
+
+    # (b) implied correlation identity, β=0.4 both dims
+    pds = np.array([0.05, 0.05, 0.05, 0.05])
+    fm = np.array([[5, 9], [5, 8], [5, 9], [7, 8]])
+    beta = 0.4
+    mfc = MultiFactorCopula().fit(pds, fm, betas=beta)
+    C = mfc.implied_correlation_block(np.arange(4))
+    assert abs(C[0, 1] - beta ** 2) < 1e-9, "share geo only → β²"
+    assert abs(C[0, 2] - 2 * beta ** 2) < 1e-9, "share both → 2β²"
+    assert abs(C[0, 3]) < 1e-9, "share none → 0"
+
+    # (c) analytical block ≈ simulation
+    n = 12
+    pds2 = rng.uniform(0.05, 0.15, n)
+    fm2 = np.column_stack([np.zeros(n, int), np.zeros(n, int)])   # share both
+    mfc2 = MultiFactorCopula().fit(pds2, fm2, betas=0.45)
+    J = mfc2.joint_default_probability_block(np.arange(n))
+    D = mfc2.simulate_defaults(400_000, seed=1)
+    emp = (D.astype(float).T @ D.astype(float)) / D.shape[0]
+    off = ~np.eye(n, dtype=bool)
+    assert np.abs(J[off] - emp[off]).max() < 0.01, "block disagrees with simulation"
+
+    # (d) more shared factors → more joint defaults
+    def mean_joint(fmx):
+        m = MultiFactorCopula().fit(pds2, fmx, betas=0.4)
+        JJ = m.joint_default_probability_block(np.arange(n))
+        return JJ[~np.eye(n, dtype=bool)].mean()
+    both = mean_joint(np.column_stack([np.zeros(n, int), np.zeros(n, int)]))
+    geo = mean_joint(np.column_stack([np.zeros(n, int), np.arange(n)]))
+    none = mean_joint(np.column_stack([np.arange(n), np.arange(n)]))
+    assert both > geo > none, "joint defaults must increase with shared factors"
+    print("PASSED")
+
+
+def test_anchor_contagion_metrics():
+    """Test 40: anchor-conditional cluster loss uplift (RiskRatioCalculator drop-in)."""
+    print("Test 40: cluster metrics — anchor-contagion uplift... ", end="")
+    import numpy as np
+    import pandas as pd
+    from src.multi_factor_copula import MultiFactorCopula
+    from src.risk_adjusted_metrics import RiskRatioCalculator
+    from src.cluster_metrics import ClusterRiskMetrics
+
+    n = 12
+    pds = np.full(n, 0.05)
+    transfer_factor = np.array([0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6])
+    geo_factor = np.full(n, -1)
+    fm = np.column_stack([geo_factor, transfer_factor])
+    mfc = MultiFactorCopula().fit(pds, fm, betas=[0.0, 0.6])   # strong transfer loading
+
+    persons = pd.DataFrame({
+        "person_id": np.arange(n), "model_pd": pds,
+        "geo_cluster_id": geo_factor, "transfer_cluster_id": transfer_factor,
+        "is_anchor": [True] + [False] * 11,
+        "anchor_of_cluster": [0] + [-1] * 11,
+        "depends_on_anchor": [-1] + [0] * 5 + [-1] * 6,
+        "cluster_fragility": [1.0] * 6 + [0.0] * 6,
+    })
+    calc = RiskRatioCalculator(mfc, persons, exposures=np.full(n, 10000.0), lgd=0.45)
+    crm = ClusterRiskMetrics(calc, persons)
+
+    # drop-in metric roll-up works on both cluster dims
+    tm = crm.transfer_metrics()
+    assert len(tm) >= 1 and "expected_loss" in tm.columns
+
+    tbl = crm.anchor_contagion_table()
+    assert len(tbl) == 1, "exactly one anchored cluster"
+    row = tbl.iloc[0]
+    assert row["el_anchor_default"] > row["el_unconditional"], \
+        "conditioning on anchor default must raise cluster EL"
+    assert row["uplift_ratio"] > 1.5, "fragile star should show large uplift"
+    print("PASSED")
+
+
 # ---------------------------------------------------------------------------
 # runner
 # ---------------------------------------------------------------------------
 
 def run_all_tests() -> bool:
     """
-    Run all 36 tests.
+    Run all 40 tests.
 
     Each test is wrapped so failures print a full traceback and the suite
     continues — the final summary shows exactly which tests failed.
@@ -1517,10 +1675,16 @@ def run_all_tests() -> bool:
     run("test_factor_copula_simulation", test_factor_copula_simulation)
     run("test_factor_copula_integration", test_factor_copula_integration)
 
+    # multi-dimensional clusters (geo + transfer), anchors, cluster metrics
+    run("test_geo_clusters", test_geo_clusters)
+    run("test_transfer_clusters_and_anchors", test_transfer_clusters_and_anchors)
+    run("test_multi_factor_copula", test_multi_factor_copula)
+    run("test_anchor_contagion_metrics", test_anchor_contagion_metrics)
+
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    total = 36
+    total = 40
     passed = total - len(failures)
     print("\n" + "=" * 60)
     if not failures:

@@ -32,7 +32,7 @@ This is a **credit-risk framework** that models correlated defaults using:
 
 **Run order:** `main.py` executes a 13-step pipeline (+ STEP 8b) end-to-end. Grep `# STEP` in `main.py` to jump to any step.
 
-**Run tests:** `python test_copula_framework.py` — should print `All 36 tests passed.`
+**Run tests:** `python test_copula_framework.py` — should print `All 40 tests passed.`
 
 **Run pipeline:** `python main.py` — completes in ~30-60 s, writes PNGs + CSVs to `output/`
 
@@ -43,8 +43,12 @@ This is a **credit-risk framework** that models correlated defaults using:
 ```
 src/
   agents.py                  – RiskAgentAPI (AI agent entry point) + AgentResult, AgentError
-  loaders.py                 – Real-data ingestion: ColumnMapping, load_persons/transactions, validation, reindex
+  loaders.py                 – Real-data ingestion: ColumnMapping (incl. geo lon/lat), load_persons/transactions, validation, reindex
   factor_copula.py           – FactorCopula (Vasicek factor model, scales to 10M+) + build_factor_id
+  multi_factor_copula.py     – MultiFactorCopula (K systematic factors, e.g. geo ⟂ transfer, equally weighted; O(n·K))
+  geo_clusters.py            – GeoClusterer (DBSCAN on lat/lon → geo_cluster_id; city fallback)
+  transfer_clusters.py       – TransferClusterer (Louvain communities + anchor/dependent detection + cluster fragility)
+  cluster_metrics.py         – ClusterRiskMetrics (per-cluster roll-ups + anchor-conditional contagion uplift)
   config.py                  – Dataclass configs (NetworkConfig, CopulaConfig, RiskConfig, …)
   data_generator.py          – generate_network() → (persons_df, transactions_df)
   graph_features.py          – TransactionGraph  → correlation matrix, network stats
@@ -61,7 +65,8 @@ src/
   __init__.py                – Re-exports all public symbols; read this for the full API
 
 main.py                      – 13-step pipeline + STEP 8b (risk-adjusted metrics)
-test_copula_framework.py     – 36 unit tests; run with: python test_copula_framework.py
+demo_clusters.py             – End-to-end geo+transfer cluster + anchor pipeline (saves artifacts to output/)
+test_copula_framework.py     – 40 unit tests; run with: python test_copula_framework.py
 generate_presentation_ru.py  – Russian-language presentation generator
 debug.py                     – Quick one-off diagnostic helpers (see below)
 generate_presentation.py     – Generates output/presentation.html from pipeline outputs
@@ -138,6 +143,12 @@ output/                      – Generated PNGs + CSVs (git-ignored in productio
 | See which metrics agree/disagree on a population | `MetricComparator.rank_correlation()` or `RiskAgentAPI.rank_metrics()` |
 | Find borrowers where RAROC and Sortino diverge | `MetricComparator.divergence_flags()` or `RiskAgentAPI.flag_divergences()` |
 | Aggregate metrics by any dimension | `RiskRatioCalculator.by_segment(col)` — uses block-sum of loss-cov; never average per-borrower ratios |
+| Cluster people by geography | `src/geo_clusters.py:GeoClusterer` (DBSCAN on lat/lon → `geo_cluster_id`) |
+| Find money-transfer communities | `src/transfer_clusters.py:TransferClusterer` (Louvain → `transfer_cluster_id`) |
+| Detect anchor person / dependents (якорный человек) | `TransferClusterer` → `is_anchor`, `depends_on_anchor`, `cluster_fragility` |
+| Make geo AND transfer both drive correlation | `src/multi_factor_copula.py:MultiFactorCopula` (equal `betas` per dimension) |
+| Quantify "if the anchor defaults, the cluster cascades" | `src/cluster_metrics.py:ClusterRiskMetrics.anchor_contagion_table()` (conditional-EL uplift) |
+| Run the full cluster pipeline end-to-end | `python demo_clusters.py` → artifacts in `output/` |
 | Change agent API response schema | `src/agents.py:AgentResult` dataclass |
 
 **Additivity invariant:** `E[Loss]`, `E[Profit]`, and `Capital` are additive across borrowers. `Var(Loss_S)` for segment S is the block-sum of `loss_cov[np.ix_(S,S)]`. A segment metric is ALWAYS computed from these aggregates, never as a weighted average of per-borrower metrics (incorrect under correlation).

@@ -80,6 +80,10 @@ from .loaders import (
     describe_persons,
 )
 from .factor_copula import FactorCopula, FactorCopulaParams, build_factor_id
+from .multi_factor_copula import MultiFactorCopula, MultiFactorCopulaParams
+from .geo_clusters import GeoClusterer, GeoClusterConfig
+from .transfer_clusters import TransferClusterer, TransferClusterConfig
+from .cluster_metrics import ClusterRiskMetrics, ClusterMetricsResult
 from .config import (
     NetworkConfig,
     CopulaConfig,
@@ -152,6 +156,14 @@ __all__ = [
     'FactorCopula',
     'FactorCopulaParams',
     'build_factor_id',
+    'MultiFactorCopula',
+    'MultiFactorCopulaParams',
+    'GeoClusterer',
+    'GeoClusterConfig',
+    'TransferClusterer',
+    'TransferClusterConfig',
+    'ClusterRiskMetrics',
+    'ClusterMetricsResult',
     # Configuration
     'NetworkConfig',
     'CopulaConfig',
