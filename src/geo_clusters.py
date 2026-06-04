@@ -1,6 +1,8 @@
 """
 geo_clusters.py — Geolocation clustering for the credit-risk framework.
 
+ROLE: Data Scientist (dependence structure). See ROLES.md.
+
 Turns per-person coordinates (geo_longitude, geo_latitude) into a
 `geo_cluster_id` that can be used as:
 

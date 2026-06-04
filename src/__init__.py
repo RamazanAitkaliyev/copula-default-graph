@@ -42,12 +42,24 @@ Three-layer architecture:
     FlexibleProbsCalibrator  → regime-aware copula calibration
     CustomerProfiler         → per-borrower one-page risk report
 
+ROLE-BASED NAVIGATION (for teams — see ROLES.md)
+------------------------------------------------
+The flat modules are also grouped into role-oriented facade subpackages so each
+team can import from its own domain (no files were moved; these only re-export):
+
+    from src.data_eng  import load_persons, ColumnMapping        # Data Engineer
+    from src.ml        import IndividualPDModel                   # ML Engineer
+    from src.analytics import TransactionGraph, TransferClusterer # Data Scientist (graph)
+    from src.copula    import MultiFactorCopula, FactorCopula     # Data Scientist (copula)
+    from src.risk      import RiskRatioCalculator, RiskAnalyzer   # Risk Analyst
+
 KEY INVARIANT (never violate):
   Segment metrics MUST use block-sum of loss_cov matrix — NEVER average
   per-borrower metric values. Use calc.by_segment(col), not df.groupby(col).mean().
 
 For full invariant list and common-mistake guide: see AGENTS.md.
 For ready-to-use agent system prompts: see PROMPTS.md.
+For who-owns-what: see ROLES.md. For architecture: see ARCHITECTURE.md.
 """
 
 from .data_generator import generate_network, CityConfig, get_summary_stats
