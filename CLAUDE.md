@@ -2,6 +2,16 @@
 
 AI agents (Claude Code, Copilot, Cursor, etc.) should read this file first.
 
+## Documentation map (start here)
+
+| Audience | Read |
+|---|---|
+| **Everyone (big picture)** | `ARCHITECTURE.md` · open `docs/architecture.html` |
+| **Each team** | `ROLES.md` (who owns what) · `tutorials/` (per-role walkthroughs) |
+| **Quant / model validation** | `METHODOLOGY.md` (every formula + derivation) |
+| **AI agents** | `AGENTS.md` (contract) · `CAPABILITIES.md` (catalog) · `PROMPTS.md` |
+| **Copy-paste snippets** | `RECIPES.md` |
+
 ## Agent quick-start
 
 **For AI agents:** Read `AGENTS.md` first — it is the authoritative contract.

@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copula Default Graph — Architecture &amp; Pipelines</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2129; --panel2:#222c37; --ink:#e6edf3; --muted:#9fb0c0;
+    --accent:#4ea1ff; --accent2:#6ee7b7; --warn:#ffcb6b; --line:#2d3a47;
+    --de:#7aa2f7; --ml:#bb9af7; --ds:#6ee7b7; --risk:#ffcb6b; --plat:#f7768e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{padding:48px 24px 28px;text-align:center;border-bottom:1px solid var(--line);
+         background:radial-gradient(1200px 300px at 50% -50%,rgba(78,161,255,.18),transparent)}
+  header h1{margin:0 0 6px;font-size:30px;letter-spacing:.2px}
+  header p{margin:0;color:var(--muted);max-width:760px;margin-inline:auto}
+  main{max-width:1060px;margin:0 auto;padding:28px 20px 80px}
+  h2{margin:42px 0 14px;font-size:22px;border-left:4px solid var(--accent);padding-left:12px}
+  h3{margin:24px 0 8px;font-size:17px;color:var(--accent2)}
+  p{color:var(--ink)} .muted{color:var(--muted)}
+  code{background:#0b0f14;border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+       font:13px/1.5 "SF Mono",Menlo,Consolas,monospace;color:#cfe3ff}
+  pre{background:#0b0f14;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto}
+  pre code{border:0;background:none;padding:0}
+  .layers{display:flex;flex-direction:column;gap:10px;margin:18px 0}
+  .layer{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+         position:relative;transition:transform .15s ease,border-color .15s}
+  .layer:hover{transform:translateX(4px);border-color:var(--accent)}
+  .layer .tag{position:absolute;top:14px;right:16px;font-size:11px;color:var(--bg);
+              padding:2px 9px;border-radius:999px;font-weight:700}
+  .layer h3{margin:0 0 4px}
+  .layer .mods{color:var(--muted);font-family:"SF Mono",Menlo,monospace;font-size:12.5px}
+  .layer .io{margin-top:8px;font-size:13.5px}
+  .arrow{align-self:center;color:var(--muted);font-size:18px;line-height:1}
+  .tag.de{background:var(--de)} .tag.ml{background:var(--ml)} .tag.ds{background:var(--ds)}
+  .tag.risk{background:var(--risk)} .tag.plat{background:var(--plat)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:16px 0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card h3{margin-top:0}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+        border-radius:999px;padding:2px 10px;margin:2px 4px 2px 0;font-size:12.5px;color:var(--muted)}
+  .formula{background:#0b0f14;border:1px solid var(--line);border-left:3px solid var(--accent2);
+           border-radius:8px;padding:10px 14px;margin:8px 0;font-family:"SF Mono",Menlo,monospace;
+           font-size:13.5px;color:#d7f5e6;overflow:auto}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--accent)}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0;
+        background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .node{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px}
+  .flow .sep{color:var(--accent);font-weight:700}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 0;font-size:13px;color:var(--muted)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  footer{border-top:1px solid var(--line);padding:24px;text-align:center;color:var(--muted);font-size:13px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Copula Default Graph</h1>
+  <p>A bank credit-risk platform that turns transactions, geography, and money-flow
+     communities into <b>correlated</b> joint-default risk — then computes risk
+     metrics at borrower, cluster, and portfolio level. Built to scale to 10M+
+     borrowers and to be owned by separate teams.</p>
+  <div class="legend" style="justify-content:center;margin-top:14px">
+    <span><span class="dot" style="background:var(--de)"></span>Data Engineer</span>
+    <span><span class="dot" style="background:var(--ml)"></span>ML Engineer</span>
+    <span><span class="dot" style="background:var(--ds)"></span>Data Scientist</span>
+    <span><span class="dot" style="background:var(--risk)"></span>Risk Analyst</span>
+    <span><span class="dot" style="background:var(--plat)"></span>Platform / Agents</span>
+  </div>
+</header>
+
+<main>
+
+<h2>1 · The problem</h2>
+<p>Each borrower has an individual probability of default (PD). Treating defaults
+as <b>independent</b> badly understates portfolio risk: borrowers share a local
+economy (geography), move money between each other (transaction graph), and whole
+clusters collapse together when a key person — an <i>anchor</i> — defaults. This
+platform models that correlation explicitly and measures its cost.</p>
+
+<h2>2 · Layered architecture</h2>
+<p class="muted">Data flows top → bottom. Each layer has one responsibility and a
+typed contract with the next. Hover a layer.</p>
+<div class="layers">
+
+  <div class="layer"><span class="tag de">Data Engineer</span>
+    <h3>L0 · Ingestion</h3>
+    <div class="mods">loaders.py · data_generator.py · config.py</div>
+    <div class="io"><b>in:</b> raw CSV/parquet &nbsp;→&nbsp; <b>out:</b> validated
+      <code>persons</code> + <code>transactions</code>
+      <div class="muted">contract: person_id unique 0..n-1 · model_pd∈[0,1] · (lon,lat)? · tx</div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="layer"><span class="tag ml">ML Engineer</span>
+    <h3>L1 · PD models</h3>
+    <div class="mods">pd_model.py · structural_pd.py</div>
+    <div class="io"><b>in:</b> features + <code>default</code> label &nbsp;→&nbsp;
+      <b>out:</b> <code>persons['model_pd'] ∈ [0,1]</code>
+      <div class="muted">(or the bank supplies model_pd and this layer is bypassed)</div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="layer"><span class="tag ds">Data Scientist</span>
+    <h3>L2 · Dependence structure (graph &amp; clusters)</h3>
+    <div class="mods">graph_features.py · geo_clusters.py · transfer_clusters.py</div>
+    <div class="io"><b>in:</b> persons + transactions &nbsp;→&nbsp; <b>out:</b>
+      <code>geo_cluster_id</code>, <code>transfer_cluster_id</code>, anchor columns
+      <div class="muted">transaction graph · DBSCAN geo · Louvain communities · anchor/dependent detection</div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="layer"><span class="tag ds">Data Scientist</span>
+    <h3>L3 · Copula (joint defaults)</h3>
+    <div class="mods">copula_model.py · factor_copula.py · multi_factor_copula.py</div>
+    <div class="io"><b>in:</b> PDs + correlation &nbsp;→&nbsp; <b>out:</b>
+      <code>P(D_i ∩ D_j)</code> via <code>joint_default_probability_block(idx)</code>
+      <div class="muted">5 copulas (dense ≤20k) · Vasicek 1-factor (10M) · multi-factor geo⟂transfer (10M)</div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="layer"><span class="tag risk">Risk Analyst</span>
+    <h3>L4 · Risk metrics</h3>
+    <div class="mods">risk_adjusted_metrics.py · cluster_metrics.py · risk_metrics.py</div>
+    <div class="io"><b>out:</b> loss covariance · 7 risk-adjusted metrics · anchor
+      contagion · VaR/ES · stress · ratings
+      <div class="muted">per borrower / cluster / segment / portfolio — block-sum (INV-6)</div>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="layer"><span class="tag plat">Platform / Agents</span>
+    <h3>L5 · Orchestration &amp; serving</h3>
+    <div class="mods">agents.py (RiskAgentAPI) · main.py · demo_clusters.py</div>
+    <div class="io">state-machine façade · JSON-safe results · pipelines</div>
+  </div>
+
+</div>
+
+<h2>3 · End-to-end data flow</h2>
+<div class="flow">
+  <span class="node">raw data</span><span class="sep">→</span>
+  <span class="node">validate / reindex</span><span class="sep">→</span>
+  <span class="node">model_pd</span><span class="sep">→</span>
+  <span class="node">graph + geo + transfer clusters</span><span class="sep">→</span>
+  <span class="node">anchors</span><span class="sep">→</span>
+  <span class="node">multi-factor copula</span><span class="sep">→</span>
+  <span class="node">loss covariance</span><span class="sep">→</span>
+  <span class="node">metrics + contagion + VaR/ES</span>
+</div>
+
+<h2>4 · The six design decisions that matter</h2>
+<div class="grid">
+  <div class="card"><h3>D1 · No dense n×n</h3>
+    A dense matrix at 10M is ~0.8 PB. Dependence is expressed as O(n·K) factor
+    loadings; the loss matrix is computed <b>block-on-demand</b>. Proven: 2M fit
+    in 0.30 s / 96 MB.</div>
+  <div class="card"><h3>D2 · Clusters = segments</h3>
+    Geo/transfer clusters are just <code>persons</code> columns; every metric
+    rolls up by an arbitrary column. New clustering ⇒ <b>no new metric code</b>.</div>
+  <div class="card"><h3>D3 · INV-6 additivity</h3>
+    Segment variance = block-sum of the loss-covariance matrix, never an average
+    of per-borrower ratios (wrong under correlation). Block == dense to 1e-9.</div>
+  <div class="card"><h3>D4 · One metric interface</h3>
+    Dense and factor copulas both expose
+    <code>joint_default_probability_block</code>; the metric layer duck-types on
+    it, so either plugs in unchanged.</div>
+  <div class="card"><h3>D5 · Pluggable PD</h3>
+    Banks usually have a PD model. The platform's value is the <b>dependency</b>
+    layer; it consumes <code>model_pd</code> regardless of origin.</div>
+  <div class="card"><h3>D6 · Anchors add structure</h3>
+    The copula captures co-movement; the anchor detector adds the structural
+    "breadwinner defaults ⇒ family follows" pattern as a conditional-loss uplift.</div>
+</div>
+
+<h2>5 · The core mathematics</h2>
+<p class="muted">Full derivations in <code>METHODOLOGY.md</code>. The essentials:</p>
+
+<h3>Expected loss (Basel decomposition)</h3>
+<div class="formula">EL_i = PD_i · EAD_i · LGD_i &nbsp;&nbsp;&nbsp; Portfolio EL = Σ_i EL_i</div>
+
+<h3>Joint default via the latent-variable (Gaussian) copula</h3>
+<div class="formula">D_i = 1 ⇔ A_i ≤ Φ⁻¹(PD_i) &nbsp;&nbsp;&nbsp; P(D_i ∩ D_j) = Φ₂( Φ⁻¹(PD_i), Φ⁻¹(PD_j) ; ρ )</div>
+
+<h3>Vasicek factor model (scales to 10M)</h3>
+<div class="formula">A_i = √ρ_i · Y_f(i) + √(1−ρ_i) · ε_i &nbsp;&nbsp;&nbsp; corr(A_i,A_j) = √(ρ_i·ρ_j) if same factor, else 0</div>
+
+<h3>Multi-factor (geo ⟂ transfer, equally weighted)</h3>
+<div class="formula">A_i = Σ_k β_{i,k}·Y_{k,f_k(i)} + √(1 − Σ_k β²)·ε_i &nbsp;&nbsp;&nbsp; corr(A_i,A_j) = Σ_k β_{i,k}·β_{j,k} · 1[same factor k]</div>
+
+<h3>Loss covariance (the core risk object)</h3>
+<div class="formula">LossCov[i,j] = (EAD·LGD)_i · [P(D_i∩D_j) − PD_i·PD_j] · (EAD·LGD)_j &nbsp;&nbsp;&nbsp; Var(Loss_S) = Σ_{i,j∈S} LossCov[i,j]</div>
+
+<h3>Anchor-contagion uplift (якорный человек)</h3>
+<div class="formula">PD_j | anchor defaults = P(D_j ∩ D_anchor) / PD_anchor &nbsp;&nbsp;&nbsp; uplift = EL_cluster|anchor-default / EL_cluster</div>
+
+<h2>6 · The seven risk-adjusted metrics</h2>
+<table>
+  <tr><th>Metric</th><th>Formula</th><th>Reads as</th></tr>
+  <tr><td>coefficient_of_variation</td><td>σ_L0 / EL</td><td>riskiness, correlation-blind</td></tr>
+  <tr><td>coefficient_of_variation_copula</td><td>σ_L1 / EL</td><td>riskiness, <b>copula-aware</b></td></tr>
+  <tr><td>raroc</td><td>E[Profit] / Capital</td><td>return on capital (correlation-blind)</td></tr>
+  <tr><td>sharpe_indep</td><td>(EP − rf·Rev) / σ_L0</td><td>profit vs risk-free opportunity cost</td></tr>
+  <tr><td>sortino_indep</td><td>(EP − h·Cap) / σ_L0</td><td>profit vs hurdle, indep downside</td></tr>
+  <tr><td>sortino_copula <span class="pill">primary</span></td><td>(EP − h·Cap) / σ_L1</td><td>profit vs hurdle, copula downside</td></tr>
+  <tr><td>sortino_simulated</td><td>(EP − h·Cap) / σ_L2</td><td>downside from full simulated tail</td></tr>
+</table>
+<p class="muted">The gap between σ_L0 (independence) and σ_L1 (copula) <b>is</b> the
+correlation penalty. A name cheap on RAROC but expensive on sortino_copula carries
+hidden contagion risk — the early-warning signal.</p>
+
+<h2>7 · Who owns what</h2>
+<table>
+  <tr><th>Role</th><th>Owns</th><th>Provides downstream</th></tr>
+  <tr><td><span class="dot" style="background:var(--de)"></span>Data Engineer</td><td>loaders, data_generator, config</td><td>clean persons + transactions</td></tr>
+  <tr><td><span class="dot" style="background:var(--ml)"></span>ML Engineer</td><td>pd_model, structural_pd</td><td>model_pd ∈ [0,1]</td></tr>
+  <tr><td><span class="dot" style="background:var(--ds)"></span>Data Scientist</td><td>graph, geo/transfer clusters, copulas</td><td>fitted copula + cluster columns</td></tr>
+  <tr><td><span class="dot" style="background:var(--risk)"></span>Risk Analyst</td><td>metrics, cluster contagion, stress, ratings</td><td>the numbers the bank acts on</td></tr>
+  <tr><td><span class="dot" style="background:var(--plat)"></span>Platform</td><td>agents, pipelines</td><td>façade + serving</td></tr>
+</table>
+<p class="muted">See <code>ROLES.md</code> for module-level ownership and the
+per-role tutorials in <code>tutorials/</code>.</p>
+
+<h2>8 · Run it</h2>
+<pre><code>python test_copula_framework.py    # All 41 tests passed.
+python demo_clusters.py            # geo + transfer + anchors → output/*.csv + PNGs
+python main.py                     # the base 13-step pipeline</code></pre>
+<pre><code>from src.agents import RiskAgentAPI
+api = RiskAgentAPI()
+api.run_pipeline(); api.run_cluster_analysis()
+print(api.fragile_clusters().summary)   # anchor-contagion ranking</code></pre>
+
+</main>
+<footer>
+  Copula Default Graph · architecture overview ·
+  see ARCHITECTURE.md · METHODOLOGY.md · ROLES.md · CAPABILITIES.md · tutorials/
+</footer>
+</body>
+</html>
