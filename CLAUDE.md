@@ -32,7 +32,7 @@ This is a **credit-risk framework** that models correlated defaults using:
 
 **Run order:** `main.py` executes a 13-step pipeline (+ STEP 8b) end-to-end. Grep `# STEP` in `main.py` to jump to any step.
 
-**Run tests:** `python test_copula_framework.py` — should print `All 40 tests passed.`
+**Run tests:** `python test_copula_framework.py` — should print `All 41 tests passed.`
 
 **Run pipeline:** `python main.py` — completes in ~30-60 s, writes PNGs + CSVs to `output/`
 
@@ -66,7 +66,7 @@ src/
 
 main.py                      – 13-step pipeline + STEP 8b (risk-adjusted metrics)
 demo_clusters.py             – End-to-end geo+transfer cluster + anchor pipeline (saves artifacts to output/)
-test_copula_framework.py     – 40 unit tests; run with: python test_copula_framework.py
+test_copula_framework.py     – 41 unit tests; run with: python test_copula_framework.py
 generate_presentation_ru.py  – Russian-language presentation generator
 debug.py                     – Quick one-off diagnostic helpers (see below)
 generate_presentation.py     – Generates output/presentation.html from pipeline outputs

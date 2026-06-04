@@ -1570,13 +1570,47 @@ def test_anchor_contagion_metrics():
     print("PASSED")
 
 
+def test_agent_cluster_methods():
+    """Test 41: RiskAgentAPI cluster methods return JSON-safe AgentResults."""
+    print("Test 41: agent API — cluster analysis methods... ", end="")
+    import json
+    import numpy as np
+    import pandas as pd
+    from src.agents import RiskAgentAPI
+    from src.data_generator import generate_network
+
+    persons, transactions = generate_network(seed=42)
+    rng = np.random.default_rng(7)
+    centres = {0: (76.9, 43.2), 1: (71.4, 51.1), 2: (69.6, 42.3)}
+    lon = np.empty(len(persons)); lat = np.empty(len(persons))
+    for i, c in enumerate(persons["city_id"].to_numpy()):
+        clon, clat = centres.get(int(c), (70, 48))
+        lon[i] = clon + rng.normal(0, 0.03); lat[i] = clat + rng.normal(0, 0.03)
+    persons["geo_longitude"] = lon; persons["geo_latitude"] = lat
+
+    api = RiskAgentAPI(persons=persons, transactions=transactions, seed=42)
+    # guard: cluster queries before analysis fail gracefully (ok=False, no crash)
+    assert api.fragile_clusters().ok is False
+    api.run_pipeline()                       # reaches state with model_pd
+    r = api.run_cluster_analysis()
+    assert r.ok, f"cluster analysis failed: {r.error}"
+    assert r.data["n_geo_clusters"] >= 1
+    assert r.data["n_transfer_clusters"] >= 1
+    # all query methods return ok and JSON-serialisable data
+    for res in (api.geo_clusters(), api.transfer_clusters(),
+                api.anchors(), api.fragile_clusters()):
+        assert res.ok, res.error
+        json.dumps(res.data)                 # must be JSON-safe (agent contract)
+    print("PASSED")
+
+
 # ---------------------------------------------------------------------------
 # runner
 # ---------------------------------------------------------------------------
 
 def run_all_tests() -> bool:
     """
-    Run all 40 tests.
+    Run all 41 tests.
 
     Each test is wrapped so failures print a full traceback and the suite
     continues — the final summary shows exactly which tests failed.
@@ -1680,11 +1714,12 @@ def run_all_tests() -> bool:
     run("test_transfer_clusters_and_anchors", test_transfer_clusters_and_anchors)
     run("test_multi_factor_copula", test_multi_factor_copula)
     run("test_anchor_contagion_metrics", test_anchor_contagion_metrics)
+    run("test_agent_cluster_methods", test_agent_cluster_methods)
 
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    total = 40
+    total = 41
     passed = total - len(failures)
     print("\n" + "=" * 60)
     if not failures:

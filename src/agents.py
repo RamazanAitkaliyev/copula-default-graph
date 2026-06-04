@@ -196,6 +196,13 @@ class RiskAgentAPI:
         self._stress_result = None
         self._regime_result = None
 
+        # Cluster-analysis objects (populated by run_cluster_analysis())
+        self._geo_clusterer = None
+        self._transfer_clusterer = None
+        self._mfc = None              # MultiFactorCopula
+        self._cluster_calc = None     # RiskRatioCalculator over the multi-factor copula
+        self._cluster_metrics = None  # ClusterRiskMetrics
+
         if persons is not None:
             self._validate_persons(persons)
             self._persons = persons.copy()
@@ -1021,6 +1028,247 @@ class RiskAgentAPI:
             f"tail_ratio(ES/VaR)={p.tail_risk_ratio:.4f}."
         )
         return AgentResult(ok=True, data=data, summary=summary)
+
+    # ── multi-dimensional clusters & anchors ──────────────────────────────────
+    #
+    # These methods add the geo + transfer-graph cluster layer on top of the
+    # base pipeline. They are independent of the 13-step run_pipeline() and only
+    # require that PDs exist (state >= 'pd_model'); call run_cluster_analysis()
+    # once, then query with the other cluster_* methods.
+
+    def run_cluster_analysis(
+        self,
+        eps_km: float = 8.0,
+        min_samples: int = 5,
+        resolution: float = 1.0,
+        min_cluster_size: int = 4,
+        beta_geo: float = 0.30,
+        beta_transfer: float = 0.30,
+    ) -> AgentResult:
+        """
+        Build multi-dimensional risk clusters and the anchor/dependent structure.
+
+        Pipeline: geo clusters (DBSCAN on lat/lon, falls back to city if no
+        coordinates) → transfer communities (Louvain) + anchor detection
+        (якорный человек) → multi-factor copula (geo ⟂ transfer, equal loadings)
+        → cluster risk metrics + anchor-contagion uplift.
+
+        Requires state >= 'pd_model'. Idempotent — safe to re-run with new knobs.
+
+        Returns AgentResult.data = {
+            n_geo_clusters, n_transfer_clusters, n_anchors,
+            variance_inflation_vs_independence, top_anchor (or None)
+        }
+        """
+        self._require_state("pd_model", "run_cluster_analysis")
+        warnings: List[str] = []
+        try:
+            import numpy as _np
+            from .geo_clusters import GeoClusterer, GeoClusterConfig
+            from .transfer_clusters import TransferClusterer, TransferClusterConfig
+            from .multi_factor_copula import MultiFactorCopula
+            from .risk_adjusted_metrics import RiskRatioCalculator
+            from .cluster_metrics import ClusterRiskMetrics
+
+            persons = self._persons.copy()
+            pd_col = "model_pd" if "model_pd" in persons.columns else "base_pd"
+
+            # 1) geo clusters
+            gc = GeoClusterer(
+                GeoClusterConfig(eps_km=eps_km, min_samples=min_samples)
+            ).fit(persons)
+            persons = gc.assign(persons)
+            if gc.method_ != "dbscan":
+                warnings.append(
+                    f"No usable geo coordinates — geo clusters fell back to "
+                    f"'{gc.method_}' (city grouping)."
+                )
+
+            # 2) transfer communities + anchors
+            tc = TransferClusterer(
+                TransferClusterConfig(
+                    resolution=resolution, min_cluster_size=min_cluster_size
+                )
+            ).fit(persons, self._transactions)
+            persons = tc.assign(persons)
+
+            # 3) multi-factor copula (geo + transfer, equal loadings)
+            pds = persons[pd_col].to_numpy()
+            factor_matrix = persons[
+                ["geo_cluster_id", "transfer_cluster_id"]
+            ].to_numpy()
+            mfc = MultiFactorCopula().fit(
+                pds, factor_matrix, betas=[beta_geo, beta_transfer]
+            )
+
+            # 4) cluster metrics
+            if "exposure_at_default" in persons.columns:
+                ead = persons["exposure_at_default"].to_numpy()
+            elif "income" in persons.columns:
+                ead = persons["income"].to_numpy()
+            else:
+                ead = _np.full(len(persons), 10000.0)
+                warnings.append("No EAD/income column — using flat EAD=10000.")
+            calc = RiskRatioCalculator(
+                mfc, persons, exposures=ead, lgd=self._cfg.risk.lgd
+            )
+            crm = ClusterRiskMetrics(calc, persons)
+
+            # stash for the query methods
+            self._persons = persons
+            self._geo_clusterer = gc
+            self._transfer_clusterer = tc
+            self._mfc = mfc
+            self._cluster_calc = calc
+            self._cluster_metrics = crm
+
+            dr = mfc.simulate_default_rate(2000, seed=self._seed)
+            indep_std = _np.sqrt((pds * (1 - pds)).sum()) / len(pds)
+            infl = float((dr.std() / indep_std) ** 2) if indep_std > 0 else float("nan")
+
+            anchors = tc.anchors_table()
+            n_geo = int(persons.loc[persons["geo_cluster_id"] >= 0,
+                                    "geo_cluster_id"].nunique())
+            n_tx = int(persons.loc[persons["transfer_cluster_id"] >= 0,
+                                   "transfer_cluster_id"].nunique())
+            top_anchor = None
+            if len(anchors):
+                a0 = anchors.iloc[0]
+                top_anchor = {
+                    "anchor_person_id": int(a0["anchor_person_id"]),
+                    "transfer_cluster_id": int(a0["transfer_cluster_id"]),
+                    "n_dependents": int(a0["n_dependents"]),
+                    "cluster_fragility": float(a0["cluster_fragility"]),
+                }
+
+            data = {
+                "n_geo_clusters": n_geo,
+                "n_transfer_clusters": n_tx,
+                "n_anchors": int(len(anchors)),
+                "variance_inflation_vs_independence": round(infl, 1),
+                "top_anchor": top_anchor,
+            }
+            summary = (
+                f"Built {n_geo} geo clusters and {n_tx} transfer communities; "
+                f"found {len(anchors)} anchor(s). The multi-factor copula "
+                f"(geo + transfer) inflates portfolio loss variance "
+                f"{infl:.0f}× over the independence assumption."
+            )
+            if top_anchor:
+                summary += (
+                    f" Most fragile anchored cluster: #{top_anchor['transfer_cluster_id']} "
+                    f"(anchor person {top_anchor['anchor_person_id']}, "
+                    f"{top_anchor['n_dependents']} dependents, "
+                    f"fragility {top_anchor['cluster_fragility']:.2f})."
+                )
+            return AgentResult(ok=True, data=data, summary=summary, warnings=warnings)
+        except Exception as e:  # graceful failure per the agent contract
+            return AgentResult(
+                ok=False, data=None, summary="Cluster analysis failed.",
+                warnings=warnings, error=str(e),
+            )
+
+    def geo_clusters(self) -> AgentResult:
+        """Per-geo-cluster risk metrics (EAD/EL/σ/CoV/RAROC/Sortino). Run
+        run_cluster_analysis() first."""
+        return self._cluster_segment_result("geo")
+
+    def transfer_clusters(self) -> AgentResult:
+        """Per-transfer-community risk metrics. Run run_cluster_analysis() first."""
+        return self._cluster_segment_result("transfer")
+
+    def anchors(self) -> AgentResult:
+        """List detected anchors (якорный человек) with dependents and fragility."""
+        if getattr(self, "_transfer_clusterer", None) is None:
+            return AgentResult(
+                ok=False, data=None, summary="No cluster analysis yet.",
+                error="Call run_cluster_analysis() first.",
+            )
+        tbl = self._transfer_clusterer.anchors_table()
+        return AgentResult(
+            ok=True, data=_df_to_list(tbl),
+            summary=(f"{len(tbl)} anchor(s) detected. Each is a person whose "
+                     f"default would likely cascade to its dependents."),
+        )
+
+    def fragile_clusters(self, top_n: int = 10) -> AgentResult:
+        """
+        Rank clusters by anchor-contagion uplift: how much a cluster's expected
+        loss rises if its anchor defaults (the quantified якорный-человек risk).
+        """
+        if getattr(self, "_cluster_metrics", None) is None:
+            return AgentResult(
+                ok=False, data=None, summary="No cluster analysis yet.",
+                error="Call run_cluster_analysis() first.",
+            )
+        tbl = self._cluster_metrics.anchor_contagion_table()
+        if len(tbl):
+            tbl = tbl.head(top_n)
+            worst = tbl.iloc[0]
+            summary = (
+                f"Top {len(tbl)} most anchor-dependent clusters. Worst: cluster "
+                f"#{int(worst['transfer_cluster_id'])} loss rises "
+                f"{worst['uplift_ratio']:.2f}× "
+                f"({worst['el_unconditional']:.0f} → {worst['el_anchor_default']:.0f}) "
+                f"if its anchor defaults."
+            )
+        else:
+            summary = "No anchored clusters large enough for contagion analysis."
+        return AgentResult(ok=True, data=_df_to_list(tbl), summary=summary)
+
+    def cluster_report(self, cluster_id: int, dimension: str = "transfer") -> AgentResult:
+        """
+        Full report for one cluster: members, anchor, fragility, and the
+        anchor-contagion uplift. dimension = 'transfer' (default) or 'geo'.
+        """
+        if getattr(self, "_persons", None) is None or \
+                getattr(self, "_cluster_metrics", None) is None:
+            return AgentResult(
+                ok=False, data=None, summary="No cluster analysis yet.",
+                error="Call run_cluster_analysis() first.",
+            )
+        col = "transfer_cluster_id" if dimension == "transfer" else "geo_cluster_id"
+        members = self._persons[self._persons[col] == cluster_id]
+        if len(members) == 0:
+            return AgentResult(
+                ok=False, data=None,
+                summary=f"No members in {dimension} cluster {cluster_id}.",
+                error="Unknown cluster id.",
+            )
+        contagion = self._cluster_metrics.anchor_contagion_table()
+        crow = contagion[contagion["transfer_cluster_id"] == cluster_id]
+        data = {
+            "dimension": dimension,
+            "cluster_id": int(cluster_id),
+            "n_members": int(len(members)),
+            "member_person_ids": _safe(members["person_id"].to_numpy()),
+            "anchor_contagion": (_df_to_list(crow)[0] if len(crow) else None),
+        }
+        if "is_anchor" in members.columns and members["is_anchor"].any():
+            arow = members[members["is_anchor"]].iloc[0]
+            data["anchor_person_id"] = int(arow["person_id"])
+            data["cluster_fragility"] = float(arow.get("cluster_fragility", float("nan")))
+        return AgentResult(
+            ok=True, data=data,
+            summary=(f"{dimension.title()} cluster {cluster_id}: "
+                     f"{len(members)} members."),
+        )
+
+    def _cluster_segment_result(self, dimension: str) -> AgentResult:
+        if getattr(self, "_cluster_metrics", None) is None:
+            return AgentResult(
+                ok=False, data=None, summary="No cluster analysis yet.",
+                error="Call run_cluster_analysis() first.",
+            )
+        if dimension == "geo":
+            tbl = self._cluster_metrics.geo_metrics()
+        else:
+            tbl = self._cluster_metrics.transfer_metrics()
+        return AgentResult(
+            ok=True, data=_df_to_list(tbl),
+            summary=(f"Risk metrics for {len(tbl)} {dimension} clusters "
+                     f"(EAD, expected loss, σ, CoV, RAROC, Sortino)."),
+        )
 
     def state(self) -> str:
         """
