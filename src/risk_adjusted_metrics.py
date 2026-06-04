@@ -369,7 +369,18 @@ class RiskRatioCalculator:
         # (loss_cov[ix_(idx,idx)]), so nothing materialises the full matrix.
         self._dense_loss_cov: Optional[np.ndarray] = None
         if self._n <= LOSS_COV_DENSE_MAX_NODES:
-            J = copula.joint_default_probability()       # (n,n) full matrix
+            # Two supported copula interfaces:
+            #  * legacy CopulaDefaultModel exposes a no-arg full-matrix
+            #    `joint_default_probability()` returning the (n,n) matrix;
+            #  * (multi-)factor copulas expose `joint_default_probability_block(idx)`
+            #    and DO NOT have a no-arg full-matrix form (it would defeat the
+            #    O(n) design). For small n we materialise the dense matrix from a
+            #    single full-index block call — identical result, one interface.
+            if hasattr(copula, "joint_default_probability_block") and \
+                    self._copula_block_is_primary(copula):
+                J = copula.joint_default_probability_block(np.arange(self._n))
+            else:
+                J = copula.joint_default_probability()   # (n,n) full matrix
             pd_outer = np.outer(self.pd, self.pd)
             cov_def = J - pd_outer
             np.fill_diagonal(cov_def, self.pd * (1.0 - self.pd))
@@ -382,6 +393,29 @@ class RiskRatioCalculator:
                 "loss-covariance (no dense n×n matrix materialised).",
                 self._n, LOSS_COV_DENSE_MAX_NODES,
             )
+
+    @staticmethod
+    def _copula_block_is_primary(copula) -> bool:
+        """
+        True when the copula's primary joint-default interface is the BLOCK form
+        (factor copulas), i.e. it has no usable no-arg full-matrix
+        `joint_default_probability()`. We detect this by checking whether that
+        method requires positional pair arguments (i, j) — factor copulas do.
+        """
+        import inspect
+        fn = getattr(copula, "joint_default_probability", None)
+        if fn is None:
+            return True  # only the block form exists
+        try:
+            sig = inspect.signature(fn)
+            required = [
+                p for p in sig.parameters.values()
+                if p.default is inspect.Parameter.empty
+                and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            ]
+            return len(required) >= 1  # needs (i, j) → block-primary
+        except (ValueError, TypeError):
+            return False
 
     # ── loss-covariance block accessor (scale-safe) ───────────────────────────
 
