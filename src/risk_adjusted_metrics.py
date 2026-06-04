@@ -269,13 +269,22 @@ class RiskRatioCalculator:
     Compute all registered risk-adjusted metrics at any aggregation level.
 
     All hot-path computations are vectorized; no iterrows in production code.
-    The loss-covariance matrix (the core object) is built once from the full
-    copula.joint_default_probability() matrix call.
+
+    The loss-covariance matrix (the core object) is obtained from the copula's
+    pairwise joint-default probabilities. For small portfolios
+    (n <= LOSS_COV_DENSE_MAX_NODES) the full (n, n) matrix is materialised once;
+    for large portfolios it is computed BLOCK-ON-DEMAND per segment, so the full
+    matrix is never formed (this is what lets the factor copulas scale to 10M).
+    Both legacy copulas (no-arg full-matrix joint_default_probability()) and
+    factor copulas (joint_default_probability_block(idx)) are supported
+    transparently.
 
     Parameters
     ----------
-    copula : CopulaDefaultModel
-        A fitted copula model.
+    copula : CopulaDefaultModel | FactorCopula | MultiFactorCopula
+        A fitted copula model. Must expose marginal_pds, is_fitted, and either a
+        no-arg joint_default_probability() (legacy, returns the full n×n matrix)
+        or joint_default_probability_block(idx) (factor copulas; block-on-demand).
     persons : pd.DataFrame
         Must have 'person_id'. May optionally have 'revenue' and 'capital' columns
         to override the proxy calculations.

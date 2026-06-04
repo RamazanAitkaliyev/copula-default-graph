@@ -1,7 +1,7 @@
 # ROADMAP — From research framework to a bank risk-department platform
 
 > Iterative gap analysis + build-out plan. Grounded in the current codebase
-> (`src/` 17 modules, ~11.9k LOC, 36 tests). Each item states **what exists
+> (`src/` 20+ modules, ~14k LOC, 41 tests). Each item states **what exists
 > today**, **what's missing**, **the design**, and **effort**.
 >
 > Read order for the impatient: §0 (target architecture) → §1 table (priorities)

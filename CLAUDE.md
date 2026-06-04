@@ -158,7 +158,7 @@ output/                      – Generated PNGs + CSVs (git-ignored in productio
 ## How to add a test
 
 Tests live in `test_copula_framework.py`. Each test is a standalone function `test_<name>(...)` that
-prints `"Test NN: <description>... PASSED"`. Add your function, then call it from the `if __name__ == "__main__"` block at the bottom. The total count in the summary line must match (currently 30).
+prints `"Test NN: <description>... PASSED"`. Add your function, then call it from the `if __name__ == "__main__"` block at the bottom. The total count in the summary line must match (currently 41).
 
 Pattern:
 ```python

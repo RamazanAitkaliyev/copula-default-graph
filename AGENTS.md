@@ -180,7 +180,7 @@ from src import CopulaDefaultModel, RiskRatioCalculator, MetricComparator
 ```bash
 python main.py          # writes all outputs to output/
 python debug.py smoke   # fast smoke test, no plots
-python test_copula_framework.py  # 30 unit tests
+python test_copula_framework.py  # 41 unit tests
 ```
 
 ---
@@ -411,7 +411,7 @@ cfg = PipelineConfig(
 
 ```bash
 # Must pass before any merge:
-python test_copula_framework.py        # 30 unit tests
+python test_copula_framework.py        # 41 unit tests
 
 # Quick smoke (no plots, ~5s):
 python debug.py smoke
