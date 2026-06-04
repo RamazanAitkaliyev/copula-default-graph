@@ -113,6 +113,45 @@ at 10M use the streamed `simulate_segment_losses` / `simulate_default_rate` inst
 
 ---
 
+## Multi-dimensional clusters & anchors (geo + transfer graph)
+
+Correlation comes from TWO independent, equally-weighted sources, each a
+systematic factor:
+
+- **Geo clusters** — `geo_clusters.GeoClusterer` (DBSCAN on `geo_longitude`/
+  `geo_latitude`, falls back to `city_id`) → `geo_cluster_id`.
+- **Transfer communities** — `transfer_clusters.TransferClusterer` (weighted
+  Louvain on the money-flow graph) → `transfer_cluster_id`, plus **anchor /
+  dependent** detection (якорный человек): `is_anchor`, `depends_on_anchor`,
+  `cluster_fragility`.
+
+Feed BOTH into the **multi-factor copula** so geo and transfer drive default
+correlation together:
+
+```python
+from src.multi_factor_copula import MultiFactorCopula
+factors = persons[["geo_cluster_id", "transfer_cluster_id"]].to_numpy()
+mfc = MultiFactorCopula().fit(persons["model_pd"].values, factors, betas=[0.3, 0.3])
+# equal betas ⇒ equally important. implied corr = Σ_k β_ik·β_jk over shared factors.
+# O(n·K) storage (never n×n) → scales to 10M. Drop-in for RiskRatioCalculator.
+```
+
+**Cluster metrics** are free: `RiskRatioCalculator.by_segment("geo_cluster_id")`
+or `"transfer_cluster_id"` (block-sum loss covariance). The headline
+anchor-contagion number — how much a cluster's expected loss rises if its anchor
+defaults — is `cluster_metrics.ClusterRiskMetrics(calc, persons)
+.anchor_contagion_table()` (conditional PD = P(D_j ∩ D_anchor)/PD_anchor).
+
+Agent façade: `api.run_cluster_analysis()` then `api.geo_clusters()`,
+`api.transfer_clusters()`, `api.anchors()`, `api.fragile_clusters()`,
+`api.cluster_report(id)`. Runnable end-to-end: `python demo_clusters.py`.
+See `CAPABILITIES.md` (catalog) and `RECIPES.md` (snippets).
+
+**Invariant:** `Σ_k β² < 1` per borrower (positive idiosyncratic variance) —
+`MultiFactorCopula.fit` raises if violated.
+
+---
+
 ## Agent entry points
 
 There are **three ways to interact** with this codebase, ordered from safest to most powerful:
