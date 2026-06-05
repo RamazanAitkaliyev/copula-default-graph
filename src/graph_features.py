@@ -656,7 +656,16 @@ class TransactionGraph:
         return int(n_comp)
 
     def detect_communities(self, n_communities: int = 5) -> np.ndarray:
-        """Detect communities using spectral clustering."""
+        """Detect communities using spectral clustering.
+
+        Returns an int label per node (length n_nodes). Degenerate graphs
+        (fewer nodes than requested communities) and a k-means failure both fall
+        back to one-label-per-node rather than collapsing every node into a
+        single community (a silent wrong answer for downstream risk grouping).
+        """
+        if self.n_nodes < 2 or n_communities <= 1:
+            return np.zeros(self.n_nodes, dtype=int)
+
         # Laplacian
         D = np.diag(self.adj_weighted.sum(axis=1))
         L = D - self.adj_weighted
@@ -675,9 +684,18 @@ class TransactionGraph:
         # K-means
         from scipy.cluster.vq import kmeans2
         try:
-            _, labels = kmeans2(features, n_communities, minit='++')
-        except Exception:
-            labels = np.zeros(self.n_nodes, dtype=int)
+            _, labels = kmeans2(features, n_communities, minit='++', missing='warn')
+            # kmeans2 can return empty clusters; labels are still a valid partition.
+            labels = np.asarray(labels, dtype=int)
+        except Exception as e:
+            # Do NOT collapse all nodes into community 0 — that silently destroys
+            # structure. Give each node its own label so callers see no spurious
+            # grouping, and surface the failure.
+            logger.warning(
+                "spectral k-means failed (%s); falling back to one community "
+                "per node", e
+            )
+            labels = np.arange(self.n_nodes, dtype=int)
 
         return labels
 

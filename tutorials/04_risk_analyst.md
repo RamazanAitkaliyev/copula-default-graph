@@ -31,11 +31,15 @@ loss-covariance object (dense for ≤20k, block-on-demand above).
 pb = calc.per_borrower()
 
 # per ANY segment (block-sum loss covariance — correct under correlation)
-calc.by_segment("geo_cluster_id")        # per geo cluster
-calc.by_segment("transfer_cluster_id")   # per transfer community
-calc.by_segment("city_id")               # per city
-# columns: exposure, expected_loss, loss_std_copula, coefficient_of_variation,
-#          raroc, sortino_copula (primary), diversification_ratio, ...
+geo_seg = calc.by_segment("geo_cluster_id")        # per geo cluster
+calc.by_segment("transfer_cluster_id")             # per transfer community
+calc.by_segment("city_id")                         # per city
+# The grouping key is returned in a column literally named "segment"
+# (NOT the input column name). So read it back as:
+#     geo_seg["segment"]            # the geo_cluster_id values
+# columns: segment, n, exposure, exposure_share, expected_profit, expected_loss,
+#          loss_std_indep, loss_std_copula, diversification_ratio,
+#          coefficient_of_variation, raroc, sortino_copula (primary), ...
 
 # whole portfolio
 print(calc.metric("sortino_copula"))            # one number, all borrowers

@@ -408,8 +408,12 @@ class CustomerProfiler:
                 try:
                     jp = self._copula.joint_default_probability(idx, int(j))
                     joint_pds.append((int(j), float(jp)))
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Skip this neighbour but record why — a silent pass here
+                    # would hide a real copula indexing error.
+                    logger.debug(
+                        "joint_default_probability(%d, %d) failed: %s", idx, j, e
+                    )
             joint_pds.sort(key=lambda x: x[1], reverse=True)
             for j, jp in joint_pds[:5]:
                 p_row = self._persons.iloc[j]
