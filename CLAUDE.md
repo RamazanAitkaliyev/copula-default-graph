@@ -7,6 +7,7 @@ AI agents (Claude Code, Copilot, Cursor, etc.) should read this file first.
 | Audience | Read |
 |---|---|
 | **Everyone (big picture)** | `ARCHITECTURE.md` · open `docs/architecture.html` |
+| **Risk department (end-to-end guide)** | open `docs/risk_department.html` — full pipeline, every module + logic, how to operate it |
 | **Each team** | `ROLES.md` (who owns what) · `tutorials/` (per-role walkthroughs) |
 | **Quant / model validation** | `METHODOLOGY.md` (every formula + derivation) |
 | **AI agents** | `AGENTS.md` (contract) · `CAPABILITIES.md` (catalog) · `PROMPTS.md` |

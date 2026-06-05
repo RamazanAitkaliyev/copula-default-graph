@@ -17,7 +17,10 @@ yours.
 - `../ROLES.md` — who owns which module + boundary contracts.
 - `../CAPABILITIES.md` — machine-readable API catalog (for AI agents).
 - `../RECIPES.md` — copy-paste snippets.
-- `../docs/architecture.html` — the visual, shareable version.
+- `../docs/architecture.html` — the visual, shareable architecture diagram.
+- `../docs/risk_department.html` — the full descriptive guide for the risk
+  department: every pipeline stage, every module + the logic behind it, the
+  seven metrics decoded, and the standing risk-team workflows.
 
 **Verify the whole thing:**
 ```bash

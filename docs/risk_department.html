@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copula Default Graph — Risk Department Guide</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2129; --panel2:#222c37; --ink:#e6edf3; --muted:#9fb0c0;
+    --accent:#4ea1ff; --accent2:#6ee7b7; --warn:#ffcb6b; --bad:#f7768e; --line:#2d3a47;
+    --de:#7aa2f7; --ml:#bb9af7; --ds:#6ee7b7; --risk:#ffcb6b; --plat:#f7768e;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{padding:48px 24px 30px;text-align:center;border-bottom:1px solid var(--line);
+         background:radial-gradient(1200px 320px at 50% -50%,rgba(78,161,255,.18),transparent)}
+  header h1{margin:0 0 6px;font-size:30px;letter-spacing:.2px}
+  header .sub{margin:0;color:var(--muted);max-width:820px;margin-inline:auto}
+  header .crumbs{margin-top:14px;font-size:13px;color:var(--muted)}
+  header .crumbs a{color:var(--accent);text-decoration:none}
+  .wrap{display:flex;max-width:1200px;margin:0 auto;gap:24px;padding:0 20px}
+  nav.toc{position:sticky;top:0;align-self:flex-start;width:230px;flex:0 0 230px;
+          max-height:100vh;overflow:auto;padding:26px 8px 40px;font-size:13px}
+  nav.toc h4{margin:14px 0 6px;color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  nav.toc a{display:block;color:var(--muted);text-decoration:none;padding:3px 8px;border-radius:6px;
+            border-left:2px solid transparent}
+  nav.toc a:hover{color:var(--ink);background:var(--panel);border-left-color:var(--accent)}
+  main{flex:1 1 auto;min-width:0;padding:26px 0 90px;max-width:900px}
+  h2{margin:46px 0 14px;font-size:23px;border-left:4px solid var(--accent);padding-left:12px;scroll-margin-top:20px}
+  h3{margin:26px 0 8px;font-size:17px;color:var(--accent2)}
+  h4{margin:18px 0 6px;font-size:14.5px;color:var(--ink)}
+  p{color:var(--ink)} .muted{color:var(--muted)}
+  b,strong{color:#fff}
+  code{background:#0b0f14;border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+       font:13px/1.5 "SF Mono",Menlo,Consolas,monospace;color:#cfe3ff}
+  pre{background:#0b0f14;border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto}
+  pre code{border:0;background:none;padding:0;color:#d7e6ff}
+  .lead{font-size:16px;color:var(--muted)}
+  .kw{color:#bb9af7} .st{color:#9ece6a} .cm{color:#5c6b7a} .fn{color:#7dcfff} .nm{color:#e0af68}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:14px 0}
+  .card h3,.card h4{margin-top:0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:16px 0}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+        border-radius:999px;padding:2px 10px;margin:2px 4px 2px 0;font-size:12.5px;color:var(--muted)}
+  .tag{display:inline-block;font-size:11px;color:var(--bg);padding:2px 9px;border-radius:999px;font-weight:700}
+  .tag.de{background:var(--de)} .tag.ml{background:var(--ml)} .tag.ds{background:var(--ds)}
+  .tag.risk{background:var(--risk)} .tag.plat{background:var(--plat)}
+  .formula{background:#0b0f14;border:1px solid var(--line);border-left:3px solid var(--accent2);
+           border-radius:8px;padding:10px 14px;margin:8px 0;font-family:"SF Mono",Menlo,monospace;
+           font-size:13.5px;color:#d7f5e6;overflow:auto}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--accent)}
+  tbody tr:hover{background:rgba(78,161,255,.05)}
+  .step{display:flex;gap:14px;margin:12px 0;background:var(--panel);border:1px solid var(--line);
+        border-radius:12px;padding:14px 16px;position:relative;transition:border-color .15s,transform .15s}
+  .step:hover{border-color:var(--accent);transform:translateX(3px)}
+  .step .num{flex:0 0 40px;height:40px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);
+             display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent);font-size:15px}
+  .step .body{flex:1 1 auto;min-width:0}
+  .step .body h4{margin:2px 0 4px}
+  .step .body .mod{font-family:"SF Mono",Menlo,monospace;font-size:12px;color:var(--muted)}
+  .step .body .io{font-size:13px;margin-top:6px;color:var(--muted)}
+  .step .body .io b{color:var(--accent2)}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0;
+        background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .node{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px}
+  .flow .sep{color:var(--accent);font-weight:700}
+  .note{border-left:3px solid var(--warn);background:rgba(255,203,107,.07);padding:10px 14px;border-radius:8px;margin:12px 0}
+  .danger{border-left:3px solid var(--bad);background:rgba(247,118,142,.08);padding:10px 14px;border-radius:8px;margin:12px 0}
+  .ok{border-left:3px solid var(--accent2);background:rgba(110,231,183,.07);padding:10px 14px;border-radius:8px;margin:12px 0}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 0 0;font-size:13px;color:var(--muted);justify-content:center}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:14px 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;text-align:center}
+  .kpi .v{font-size:24px;font-weight:700;color:var(--accent2)}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+  footer{border-top:1px solid var(--line);padding:26px;text-align:center;color:var(--muted);font-size:13px}
+  a{color:var(--accent)}
+  .anchor-art{font-family:"SF Mono",Menlo,monospace;font-size:13px;color:var(--muted);white-space:pre;line-height:1.5}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin:10px 0}
+  summary{cursor:pointer;color:var(--accent);font-weight:600}
+  @media(max-width:880px){nav.toc{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Copula Default Graph — Risk Department Guide</h1>
+  <p class="sub">How the platform works, end to end: every pipeline stage, every
+     module, the financial logic behind it, and exactly how the risk team runs it
+     to find correlated-default and contagion risk that a borrower-by-borrower
+     view would miss.</p>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--de)"></span>Data Engineer</span>
+    <span><span class="dot" style="background:var(--ml)"></span>ML Engineer</span>
+    <span><span class="dot" style="background:var(--ds)"></span>Data Scientist</span>
+    <span><span class="dot" style="background:var(--risk)"></span>Risk Analyst</span>
+    <span><span class="dot" style="background:var(--plat)"></span>Platform / Agents</span>
+  </div>
+  <div class="crumbs">Companion docs:
+    <a href="architecture.html">architecture.html</a> (the diagram) ·
+    <code>METHODOLOGY.md</code> (derivations) ·
+    <code>tutorials/</code> (runnable, per-role) ·
+    <code>ROLES.md</code> (who owns what)</div>
+</header>
+
+<div class="wrap">
+<nav class="toc">
+  <h4>Start</h4>
+  <a href="#why">1 · Why this exists</a>
+  <a href="#bigpicture">2 · Big picture</a>
+  <a href="#pipeline">3 · The pipeline</a>
+  <h4>Modules &amp; logic</h4>
+  <a href="#m-ingest">4 · Ingestion</a>
+  <a href="#m-pd">5 · PD model</a>
+  <a href="#m-graph">6 · Graph &amp; clusters</a>
+  <a href="#m-copula">7 · Copulas</a>
+  <a href="#m-anchor">8 · Anchors &amp; contagion</a>
+  <a href="#m-metrics">9 · Risk metrics</a>
+  <a href="#m-ext">10 · Stress · ratings · regimes</a>
+  <h4>Operating it</h4>
+  <a href="#workflows">11 · Risk-team workflows</a>
+  <a href="#metricsdecoded">12 · Metrics decoded</a>
+  <a href="#outputs">13 · Output files</a>
+  <a href="#invariants">14 · Rules &amp; caveats</a>
+  <a href="#quickref">15 · Quick reference</a>
+</nav>
+
+<main>
+
+<!-- ============================================================ -->
+<h2 id="why">1 · Why this platform exists</h2>
+<p class="lead">A bank that adds up each borrower's expected loss in isolation
+systematically <b>understates</b> how much it can lose at once.</p>
+<p>Every borrower has a probability of default (PD). But defaults are not
+independent — and independence is exactly what a simple sum of per-borrower
+numbers assumes. Borrowers:</p>
+<ul>
+  <li>share a <b>local economy</b> — a regional shock hits a whole geography together;</li>
+  <li><b>move money between each other</b> — a transaction network creates real
+      financial dependence;</li>
+  <li>cluster around an <b>anchor</b> — when one person funds a family or a small
+      ring (<i>якорный человек</i>), their default cascades to everyone who depended
+      on them.</li>
+</ul>
+<p>The tail of the portfolio loss distribution — the number that determines
+economic capital — is driven by these correlations, not by the averages. This
+platform <b>models the correlation explicitly</b>, prices its cost into every risk
+metric, and surfaces the clusters and anchors where contagion concentrates.</p>
+
+<div class="ok"><b>The one-sentence value:</b> it converts marginal PDs + a money-flow
+graph + geography into a <i>joint</i>-default model, then reports risk-adjusted
+metrics at borrower, cluster, and portfolio level — so the risk department can act
+on hidden correlation, not just headline averages.</div>
+
+<!-- ============================================================ -->
+<h2 id="bigpicture">2 · The big picture in one diagram</h2>
+<p class="muted">Data flows left → right. Each block is one responsibility, owned by
+one role, with a typed hand-off to the next.</p>
+<div class="flow">
+  <span class="node"><span class="tag de">DE</span> raw data</span>
+  <span class="sep">→</span>
+  <span class="node"><span class="tag ml">ML</span> PD per borrower</span>
+  <span class="sep">→</span>
+  <span class="node"><span class="tag ds">DS</span> graph · geo · transfer clusters</span>
+  <span class="sep">→</span>
+  <span class="node"><span class="tag ds">DS</span> copula (joint default)</span>
+  <span class="sep">→</span>
+  <span class="node"><span class="tag risk">RISK</span> metrics · stress · ratings</span>
+  <span class="sep">→</span>
+  <span class="node"><span class="tag plat">API</span> agent / reports</span>
+</div>
+<p>The three intellectual leaps, in order:</p>
+<div class="grid">
+  <div class="card"><h3>1 · PD → marginal risk</h3><p class="muted">A gradient-boosting
+    model turns borrower features into a calibrated default probability. This is the
+    <i>marginal</i> — each borrower alone.</p></div>
+  <div class="card"><h3>2 · Graph → correlation</h3><p class="muted">Money flows and
+    shared geography become a correlation structure: who moves together. Communities
+    and anchors are detected here.</p></div>
+  <div class="card"><h3>3 · Copula → joint risk</h3><p class="muted">A copula stitches
+    the marginals together with that correlation, producing the <i>joint</i> default
+    distribution that every risk metric reads from.</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="pipeline">3 · The full pipeline, step by step</h2>
+<p>The reference run is <code>main.py</code> — 14 stages end to end (~30–60 s,
+writes plots + CSVs to <code>output/</code>). Below, each stage names its module,
+what goes in, and what comes out. <span class="muted">Jump in code with
+<code>grep "# STEP" main.py</code>.</span></p>
+
+<div class="step"><div class="num">1</div><div class="body">
+  <h4>Data generation / ingestion <span class="tag de">DE</span></h4>
+  <div class="mod">data_generator.py · loaders.py · config.py</div>
+  <div class="io"><b>in:</b> raw CSV/parquet (or synthetic) → <b>out:</b> validated
+    <code>persons</code> + <code>transactions</code> with unique integer
+    <code>person_id</code>.</div>
+</div></div>
+
+<div class="step"><div class="num">2</div><div class="body">
+  <h4>Transaction graph <span class="tag ds">DS</span></h4>
+  <div class="mod">graph_features.py</div>
+  <div class="io"><b>in:</b> transactions → <b>out:</b> sparse money-flow graph +
+    per-node network features (degree, clustering, neighbour-PD aggregates).</div>
+</div></div>
+
+<div class="step"><div class="num">3</div><div class="body">
+  <h4>Individual PD model <span class="tag ml">ML</span></h4>
+  <div class="mod">pd_model.py</div>
+  <div class="io"><b>in:</b> borrower features + <code>default</code> label →
+    <b>out:</b> <code>model_pd ∈ [0,1]</code> per borrower (validation AUC reported).</div>
+</div></div>
+
+<div class="step"><div class="num">4</div><div class="body">
+  <h4>Correlation matrix <span class="tag ds">DS</span></h4>
+  <div class="mod">graph_features.py</div>
+  <div class="io"><b>in:</b> graph + city → <b>out:</b> a PSD correlation matrix
+    (shared-community and same-city pairs get a correlation boost).</div>
+</div></div>
+
+<div class="step"><div class="num">5</div><div class="body">
+  <h4>Copula model <span class="tag ds">DS</span></h4>
+  <div class="mod">copula_model.py · factor_copula.py · multi_factor_copula.py</div>
+  <div class="io"><b>in:</b> marginal PDs + correlation → <b>out:</b> a fitted copula
+    that yields joint default probabilities <code>P(Dᵢ ∩ Dⱼ)</code> and can simulate
+    correlated default scenarios.</div>
+</div></div>
+
+<div class="step"><div class="num">6</div><div class="body">
+  <h4>Risk analysis <span class="tag risk">RISK</span></h4>
+  <div class="mod">risk_metrics.py</div>
+  <div class="io"><b>in:</b> copula + exposures → <b>out:</b> portfolio expected loss,
+    loss-distribution, VaR / ES, group &amp; fraud-ring risks.</div>
+</div></div>
+
+<div class="step"><div class="num">7</div><div class="body">
+  <h4>Stress testing <span class="tag risk">RISK</span></h4>
+  <div class="mod">risk_metrics.py</div>
+  <div class="io"><b>in:</b> stress scenario (PD multiplier, correlation boost) →
+    <b>out:</b> stressed EL / VaR and the % change vs base.</div>
+</div></div>
+
+<div class="step"><div class="num">8</div><div class="body">
+  <h4>Client value + risk-adjusted metric family <span class="tag risk">RISK</span></h4>
+  <div class="mod">client_value_metrics.py · risk_adjusted_metrics.py</div>
+  <div class="io"><b>in:</b> copula + exposures + revenue → <b>out:</b> the seven
+    risk-adjusted metrics (CoV, RAROC, Sharpe, Sortino family) at borrower / segment /
+    portfolio level, plus client segmentation.</div>
+</div></div>
+
+<div class="step"><div class="num">9</div><div class="body">
+  <h4>Rating engine <span class="tag risk">RISK</span></h4>
+  <div class="mod">rating_engine.py</div>
+  <div class="io"><b>in:</b> PDs → <b>out:</b> letter grades (AAA … Default) + a
+    1-year migration-matrix outlook.</div>
+</div></div>
+
+<div class="step"><div class="num">10</div><div class="body">
+  <h4>Structural (Merton) PD <span class="tag ds">DS</span></h4>
+  <div class="mod">structural_pd.py</div>
+  <div class="io"><b>in:</b> income proxy → <b>out:</b> a second, structural PD signal
+    and a <b>divergence</b> flag where it disagrees with the ML PD (early warning).</div>
+</div></div>
+
+<div class="step"><div class="num">11</div><div class="body">
+  <h4>Flexible probabilities / regime-aware copula <span class="tag ds">DS</span></h4>
+  <div class="mod">flexible_probs.py</div>
+  <div class="io"><b>in:</b> macro history → <b>out:</b> time-weighted scenario
+    probabilities + the current regime (calm / moderate / stress) which re-tunes the
+    copula dependence.</div>
+</div></div>
+
+<div class="step"><div class="num">12</div><div class="body">
+  <h4>Customer profiles + watchlist <span class="tag risk">RISK</span></h4>
+  <div class="mod">customer_profile.py</div>
+  <div class="io"><b>in:</b> everything above → <b>out:</b> a per-borrower risk report
+    (tier, top contagion neighbours, systemic importance) + a watchlist.</div>
+</div></div>
+
+<div class="step"><div class="num">13</div><div class="body">
+  <h4>Outputs <span class="tag plat">PLAT</span></h4>
+  <div class="mod">main.py · generate_presentation.py</div>
+  <div class="io"><b>out:</b> PNG charts + CSV tables in <code>output/</code> +
+    a data-driven HTML deck.</div>
+</div></div>
+
+<div class="step"><div class="num">14</div><div class="body">
+  <h4>Cluster + anchor pipeline <span class="tag ds">DS</span> <span class="tag risk">RISK</span></h4>
+  <div class="mod">geo_clusters.py · transfer_clusters.py · cluster_metrics.py · demo_clusters.py</div>
+  <div class="io"><b>in:</b> geo coords + transfers → <b>out:</b> geo clusters,
+    money-transfer communities, detected anchors / dependents, and the
+    <b>anchor-contagion uplift</b> per cluster. Run with <code>python demo_clusters.py</code>.</div>
+</div></div>
+
+<!-- ============================================================ -->
+<h2 id="m-ingest">4 · Module — Ingestion &amp; data contract</h2>
+<p><span class="tag de">Data Engineer</span> <code>loaders.py</code> ·
+<code>data_generator.py</code> · <code>config.py</code></p>
+<p><b>What it does.</b> Loads <code>persons</code> and <code>transactions</code> from
+real files (or generates a realistic synthetic network), validates them, and
+guarantees the one invariant everything else relies on: <code>person_id</code> is a
+unique integer used as the positional array index in every numpy operation
+downstream.</p>
+<p><b>The logic.</b> <code>ColumnMapping</code> lets you point the loader at your real
+column names (including <code>geo_longitude</code> / <code>geo_latitude</code>).
+Validation rejects duplicate / null ids, clamps PDs into <code>[0,1]</code>, accepts
+PD as a percent or a fraction, range-checks coordinates, and re-indexes ids to a
+dense <code>0..n-1</code> range so array math is safe.</p>
+<pre><code><span class="kw">from</span> src.data_eng <span class="kw">import</span> load_persons, load_transactions, ColumnMapping
+m = ColumnMapping(person_id=<span class="st">"customer_id"</span>, model_pd=<span class="st">"pd"</span>,
+                  geo_longitude=<span class="st">"lon"</span>, geo_latitude=<span class="st">"lat"</span>)
+persons = load_persons(<span class="st">"persons.csv"</span>, mapping=m)      <span class="cm"># validated + reindexed</span>
+tx      = load_transactions(<span class="st">"transfers.csv"</span>, mapping=m)</code></pre>
+<div class="note"><b>Why it matters for risk:</b> bad ids or mis-scaled PDs silently
+corrupt every number downstream. This layer is the gate — if it passes, the rest is
+trustworthy.</div>
+
+<!-- ============================================================ -->
+<h2 id="m-pd">5 · Module — Probability of default (the marginal)</h2>
+<p><span class="tag ml">ML Engineer</span> <code>pd_model.py</code> ·
+<code>structural_pd.py</code></p>
+<p><b>What it does.</b> <code>IndividualPDModel</code> trains a logistic or
+gradient-boosting classifier on borrower features to predict
+<code>model_pd ∈ [0,1]</code>. <code>StructuralPDModel</code> adds an independent,
+Merton-style structural estimate as a cross-check.</p>
+<p><b>The logic.</b> The ML PD is the data-driven marginal. The Merton PD treats each
+borrower like a tiny firm whose "assets" are a capitalised income proxy and whose
+"debt" is their obligations; default is when assets fall below debt. When the two PDs
+<b>disagree</b>, that divergence is an early-warning signal — the structural view sees
+stress the statistical model hasn't priced yet.</p>
+<div class="formula">Merton:  PD = Φ(−d₂),   d₂ = [ln(V/D) + (r − σ²/2)·T] / (σ·√T)</div>
+<pre><code><span class="kw">from</span> src.ml <span class="kw">import</span> IndividualPDModel
+model = IndividualPDModel(feature_columns=FEATURES, model_type=<span class="st">"gradient_boosting"</span>)
+model.fit(persons, target_col=<span class="st">"default"</span>)
+persons[<span class="st">"model_pd"</span>] = model.predict_proba(persons)
+<span class="cm"># validation AUC is reported in the fit result (e.g. val_auc ≈ 0.81)</span></code></pre>
+<div class="note"><b>Production note:</b> the synthetic PD is illustrative. Calibration
+(does a predicted 3% actually default 3% of the time?) is the first thing to validate
+on real data — see <code>METHODOLOGY.md §12</code>.</div>
+
+<!-- ============================================================ -->
+<h2 id="m-graph">6 · Module — Graph, geo clusters &amp; transfer communities</h2>
+<p><span class="tag ds">Data Scientist</span> <code>graph_features.py</code> ·
+<code>geo_clusters.py</code> · <code>transfer_clusters.py</code></p>
+
+<h3>6.1 · Transaction graph</h3>
+<p><code>TransactionGraph</code> builds a sparse (CSR) directed money-flow graph and
+derives per-node features — degree, clustering coefficient, connected components,
+and <b>neighbour-PD aggregates</b> (how risky are the people you transact with).
+Sparse storage is what lets this scale to millions of nodes.</p>
+
+<h3>6.2 · Geo clusters — "who shares a local economy"</h3>
+<p><code>GeoClusterer</code> runs <b>DBSCAN</b> on <code>(latitude, longitude)</code>
+with a great-circle (haversine) metric. <code>eps_km</code> is your only granularity
+knob; clusters are <b>arbitrary-sized</b> (no fixed <i>k</i>). Geographic outliers
+become unique <b>negative</b> ids → treated as independent in the copula (correctly,
+they share no local economy).</p>
+<pre><code><span class="kw">from</span> src.analytics <span class="kw">import</span> GeoClusterer, GeoClusterConfig
+gc = GeoClusterer(GeoClusterConfig(eps_km=<span class="nm">8.0</span>, min_samples=<span class="nm">5</span>)).fit(persons)
+persons = gc.assign(persons)        <span class="cm"># adds geo_cluster_id</span></code></pre>
+
+<h3>6.3 · Transfer communities — "who moves money together"</h3>
+<p><code>TransferClusterer</code> runs <b>weighted Louvain</b> community detection on the
+money-flow graph: people who send/receive among themselves form a community
+(<code>transfer_cluster_id</code>). <code>resolution</code> ↑ ⇒ more, smaller
+communities. Singletons become unique negative ids → independent.</p>
+<pre><code><span class="kw">from</span> src.analytics <span class="kw">import</span> TransferClusterer, TransferClusterConfig
+tc = TransferClusterer(TransferClusterConfig(resolution=<span class="nm">1.0</span>, min_cluster_size=<span class="nm">4</span>))
+tc.fit(persons, tx)
+persons = tc.assign(persons)        <span class="cm"># adds transfer_cluster_id + anchor columns</span>
+g = tc.subgraph(cluster_id=<span class="nm">0</span>)    <span class="cm"># inspect one community's money flow</span></code></pre>
+<div class="ok"><b>Two independent lenses on correlation:</b> geography (DBSCAN) and money
+flow (Louvain). The copula can use <i>both</i> at once (next sections), so a pair
+who share a city <i>and</i> trade money is more correlated than a pair who share only
+one.</div>
+
+<!-- ============================================================ -->
+<h2 id="m-copula">7 · Module — Copulas (marginals → joint default)</h2>
+<p><span class="tag ds">Data Scientist</span> <code>copula_model.py</code> ·
+<code>factor_copula.py</code> · <code>multi_factor_copula.py</code></p>
+<p><b>What a copula does.</b> It is the mathematical object that combines individual
+PDs with a correlation structure to produce the <b>joint</b> default distribution.
+Same marginals + stronger correlation ⇒ a fatter loss tail ⇒ more economic capital.
+That is the entire point.</p>
+
+<h3>Which copula to use</h3>
+<table>
+  <thead><tr><th>Copula</th><th>Use when</th><th>Scale</th><th>Tail</th></tr></thead>
+  <tbody>
+    <tr><td><code>MultiFactorCopula</code></td><td>geo <b>and</b> transfer both drive
+      correlation (the recommended cluster model)</td><td>up to 10M</td><td>Gaussian</td></tr>
+    <tr><td><code>FactorCopula</code></td><td>one systematic factor; want fat tails via
+      Student-t</td><td>up to 10M</td><td>t (set <code>student_t=True</code>)</td></tr>
+    <tr><td><code>CopulaDefaultModel('clayton')</code></td><td>≤ 20k names; want explicit
+      lower-tail dependence</td><td>≤ 20k</td><td>lower-tail</td></tr>
+  </tbody>
+</table>
+
+<h3>The factor model (how it scales)</h3>
+<p>Instead of storing an <i>n×n</i> correlation matrix (impossible at millions), each
+borrower's latent asset value is built from a few <b>shared factors</b> plus an
+idiosyncratic part:</p>
+<div class="formula">Aᵢ = Σₖ βᵢₖ · Y<sub>k,f(i)</sub> + √(1 − Σₖ βᵢₖ²) · εᵢ ,   default if Aᵢ ≤ Φ⁻¹(PDᵢ)</div>
+<p>Borrowers in the same geo cluster share that geo factor draw; borrowers in the same
+transfer community share that transfer factor draw. The implied correlation is exact
+and cheap:</p>
+<div class="formula">corr(Aᵢ, Aⱼ) = Σₖ βᵢₖ·βⱼₖ · 1[share factor k]
+  → share geo only: β²;  share both: 2β²;  share none: 0</div>
+<pre><code><span class="kw">from</span> src.copula <span class="kw">import</span> MultiFactorCopula
+factors = persons[[<span class="st">"geo_cluster_id"</span>, <span class="st">"transfer_cluster_id"</span>]].to_numpy()
+mfc = MultiFactorCopula().fit(persons[<span class="st">"model_pd"</span>].to_numpy(),
+                             factors, betas=[<span class="nm">0.30</span>, <span class="nm">0.30</span>])  <span class="cm"># equal weight</span></code></pre>
+<div class="note"><b>Constraint:</b> Σₖ βᵢₖ² &lt; 1 per borrower (the model raises if you
+violate it). Fewer / larger factors ⇒ stronger clustering ⇒ fatter tail — choose
+granularity deliberately and validate with a variance-inflation check
+(<code>tutorials/03</code>).</div>
+<div class="danger"><b>Gaussian factor copulas have no tail dependence.</b> For deep-stress
+clustering (everyone defaulting together in the extreme), use
+<code>FactorCopula(student_t=True, nu=6)</code> or the Clayton copula for small books.</div>
+
+<!-- ============================================================ -->
+<h2 id="m-anchor">8 · Module — Anchors &amp; contagion (якорный человек)</h2>
+<p><span class="tag ds">Data Scientist</span> / <span class="tag risk">Risk Analyst</span>
+<code>transfer_clusters.py</code> · <code>cluster_metrics.py</code></p>
+<p><b>The pattern.</b> In many communities one person is the <b>source of funds</b> —
+a parent funding a family, a hub funding a small ring. If that <i>anchor</i> defaults,
+the dependents lose their inflow and tend to default too. A per-borrower view never
+sees this; it is a property of the <i>structure</i>.</p>
+<div class="anchor-art">        ┌──► dependent
+  anchor ─┼──► dependent        anchor defaults  ⇒  inflow stops  ⇒  dependents fail
+        └──► dependent</div>
+
+<h3>How an anchor is detected</h3>
+<p>For every member of a community the model scores three structural signals and
+blends them:</p>
+<div class="formula">anchor_score = 0.45·(money-source dominance) + 0.35·(dependent fraction) + 0.20·(is articulation point)</div>
+<ul>
+  <li><b>Source dominance</b> — share of the community's internal inflow this node sends.</li>
+  <li><b>Dependent fraction</b> — how many members draw a <i>majority</i> of their inflow
+      from this node.</li>
+  <li><b>Articulation point</b> — removing this node disconnects the community (a
+      structural single point of failure).</li>
+</ul>
+<p>The top scorer above a threshold becomes the cluster's anchor; its dependents are
+flagged; and the community gets a <b>fragility</b> score
+∈ [0,1] = anchor's inflow share × (1 − redundancy of alternative funding sources).</p>
+<p>New columns on <code>persons</code>: <code>is_anchor</code>,
+<code>depends_on_anchor</code>, <code>anchor_score</code>, <code>cluster_fragility</code>.</p>
+
+<h3>Pricing the cascade — anchor-contagion uplift</h3>
+<p><code>ClusterRiskMetrics.anchor_contagion_table()</code> answers the headline
+question: <i>if the anchor defaults, how much does this cluster's expected loss
+rise?</i> It computes each member's PD <b>conditional on the anchor defaulting</b>
+(from the copula's joint probabilities) and compares the conditional cluster loss to
+the unconditional one:</p>
+<div class="formula">uplift_ratio = EL(cluster | anchor defaults) / EL(cluster) ≥ 1
+  ≈ 1  → diversified, safe        ≫ 1  → fragile, cascade risk</div>
+<pre><code><span class="kw">from</span> src.risk <span class="kw">import</span> ClusterRiskMetrics
+crm = ClusterRiskMetrics(calc, persons)          <span class="cm"># calc = the metric calculator (§9)</span>
+contagion = crm.anchor_contagion_table()         <span class="cm"># ranked by uplift_ratio, worst first</span>
+worst = contagion.iloc[<span class="nm">0</span>]
+<span class="cm"># "if anchor X defaults, cluster Y loss rises 3.5x (EL 12k → 42k)"</span></code></pre>
+
+<!-- ============================================================ -->
+<h2 id="m-metrics">9 · Module — The risk-metric engine</h2>
+<p><span class="tag risk">Risk Analyst</span> <code>risk_adjusted_metrics.py</code> ·
+<code>metric_comparison.py</code> · <code>risk_metrics.py</code></p>
+<p><b>What it does.</b> <code>RiskRatioCalculator</code> is the heart of the risk
+output. It builds a <b>loss-covariance</b> object once, then computes the seven
+risk-adjusted metrics at any level: per borrower, per <i>any</i> segment (geo cluster,
+transfer community, city, archetype …), or whole portfolio.</p>
+
+<h3>The correctness rule that makes the numbers right (INV-6)</h3>
+<p>Expected loss, profit and capital are <b>additive</b> — you can sum them across
+borrowers. <b>Variance is not.</b> Under correlation, the variance of a segment's loss
+is the <b>block-sum of the loss-covariance matrix</b> over that segment, never an
+average of per-borrower ratios.</p>
+<div class="formula">Var(Loss_S) = Σ<sub>i∈S</sub> Σ<sub>j∈S</sub> LossCov[i,j]
+LossCov[i,j] = (EADᵢ·LGDᵢ) · (P(Dᵢ∩Dⱼ) − PDᵢ·PDⱼ) · (EADⱼ·LGDⱼ)</div>
+<div class="danger"><b>Never</b> compute a segment metric as
+<code>per_borrower.groupby(col).mean()</code>. That ignores the off-diagonal
+covariance — exactly the contagion you are trying to measure — and understates risk.
+Always use <code>by_segment(col)</code>, which does the block-sum.</div>
+<pre><code><span class="kw">from</span> src.risk <span class="kw">import</span> RiskRatioCalculator
+ead  = persons[<span class="st">"exposure_at_default"</span>].to_numpy()   <span class="cm"># or an income proxy</span>
+calc = RiskRatioCalculator(mfc, persons, exposures=ead, lgd=<span class="nm">0.45</span>)
+
+pb   = calc.per_borrower()                       <span class="cm"># O(n), scales to millions</span>
+geo  = calc.by_segment(<span class="st">"geo_cluster_id"</span>)         <span class="cm"># block-sum, correct under correlation</span>
+comm = calc.by_segment(<span class="st">"transfer_cluster_id"</span>)
+port = calc.metric(<span class="st">"sortino_copula"</span>)            <span class="cm"># one number, whole book</span>
+dvr  = calc.diversification_ratio()              <span class="cm"># ≥ 1; near 1 = concentrated</span></code></pre>
+<div class="note"><b>Reading the output of <code>by_segment</code>:</b> the grouping key is
+returned in a column literally named <code>segment</code> (not the input column name).
+So after <code>geo = calc.by_segment("geo_cluster_id")</code>, read the cluster id as
+<code>geo["segment"]</code>.</div>
+
+<h3>Scale: it never builds a dense n×n matrix above the threshold</h3>
+<p>For ≤ 20k names the loss-covariance is materialised densely (fast). Above that, each
+segment's block is computed <b>on demand</b> from the copula's blockwise joint
+probabilities — only <i>m×m</i> memory, never <i>n×n</i>. Same answer either way
+(verified to 1e-9 in the test suite).</p>
+
+<!-- ============================================================ -->
+<h2 id="m-ext">10 · Modules — Stress, ratings, regimes, profiles</h2>
+<div class="grid">
+  <div class="card"><h3>Stress testing <span class="tag risk">RISK</span></h3>
+    <p class="muted"><code>risk_metrics.py</code> — re-run the portfolio under a PD
+    multiplier and a correlation boost; reports stressed EL / VaR and the % change.
+    The copula state is always restored by a context manager (never left mutated).</p></div>
+  <div class="card"><h3>Rating engine <span class="tag risk">RISK</span></h3>
+    <p class="muted"><code>rating_engine.py</code> — maps PD to AAA … Default and builds
+    a 1-year migration matrix via <code>P(Δt)=exp(G·Δt)</code> for a forward outlook.</p></div>
+  <div class="card"><h3>Regime-aware copula <span class="tag ds">DS</span></h3>
+    <p class="muted"><code>flexible_probs.py</code> — kernel-weights historical
+    scenarios by similarity to today's macro state, classifies the regime
+    (calm / moderate / stress), and re-tunes copula dependence accordingly.</p></div>
+  <div class="card"><h3>Customer profile + watchlist <span class="tag risk">RISK</span></h3>
+    <p class="muted"><code>customer_profile.py</code> — a per-borrower dossier: tier,
+    top contagion neighbours, systemic importance (PD uplift this borrower causes in
+    others), and a watchlist of critical / high-tier names.</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="workflows">11 · How the risk department operates it</h2>
+<p>Four standing workflows. Each is a few lines through the agent façade
+(<code>RiskAgentAPI</code>), which orchestrates the modules and returns JSON-safe
+results — ideal for dashboards, schedulers, or an AI agent.</p>
+
+<h3>Workflow A — daily early-warning scan</h3>
+<p><b>Question:</b> who is cheap on a correlation-blind metric (RAROC) but expensive on
+the correlation-aware one (copula-Sortino)? Those names carry <b>hidden contagion
+risk</b>.</p>
+<pre><code><span class="kw">from</span> src.agents <span class="kw">import</span> RiskAgentAPI
+api = RiskAgentAPI(persons=persons, transactions=tx)
+api.run_pipeline()
+flags = api.flag_divergences(z_threshold=<span class="nm">1.5</span>)
+<span class="kw">print</span>(flags.summary)        <span class="cm"># borrowers where RAROC and sortino_copula diverge → investigate</span></code></pre>
+
+<h3>Workflow B — cluster &amp; anchor contagion review</h3>
+<p><b>Question:</b> which communities will cascade if their anchor defaults?</p>
+<pre><code>api.run_cluster_analysis(eps_km=<span class="nm">8.0</span>, min_cluster_size=<span class="nm">4</span>,
+                         beta_geo=<span class="nm">0.30</span>, beta_transfer=<span class="nm">0.30</span>)
+<span class="kw">print</span>(api.fragile_clusters(top_n=<span class="nm">10</span>).summary)   <span class="cm"># ranked by anchor-contagion uplift</span>
+<span class="kw">print</span>(api.anchors().summary)                    <span class="cm"># the anchor people themselves</span>
+<span class="kw">print</span>(api.cluster_report(cluster_id=<span class="nm">3</span>).summary)  <span class="cm"># drill into one community</span></code></pre>
+
+<h3>Workflow C — stress test</h3>
+<p><b>Question:</b> how bad does it get if PDs double and correlation rises?</p>
+<pre><code>res = api.run_stress(pd_multiplier=<span class="nm">2.0</span>, correlation_boost=<span class="nm">0.2</span>)
+<span class="kw">print</span>(res.summary)        <span class="cm"># stressed EL / VaR and % change vs base</span>
+<span class="kw">print</span>(api.regime_status().summary)   <span class="cm"># is today calm / moderate / stress?</span></code></pre>
+
+<h3>Workflow D — single-name &amp; portfolio review</h3>
+<pre><code><span class="kw">print</span>(api.query_borrower(<span class="nm">42</span>).summary)          <span class="cm"># full dossier for one borrower</span>
+<span class="kw">print</span>(api.top_risks(n=<span class="nm">20</span>).summary)             <span class="cm"># worst names by composite risk</span>
+<span class="kw">print</span>(api.portfolio_summary().summary)         <span class="cm"># EL, VaR, ES, diversification</span>
+<span class="kw">print</span>(api.segment_metrics(<span class="st">"risk_archetype"</span>).summary)</code></pre>
+<div class="ok"><b>Every <code>RiskAgentAPI</code> call returns an
+<code>AgentResult</code></b> with <code>.ok</code>, <code>.data</code> (JSON-safe),
+<code>.summary</code> (human text), <code>.warnings</code>, <code>.error</code> — so it
+drops straight into a report, a dashboard, or an agent loop without post-processing.</div>
+
+<!-- ============================================================ -->
+<h2 id="metricsdecoded">12 · The seven metrics, decoded</h2>
+<p>All seven are produced by <code>by_segment</code> / <code>per_borrower</code> at
+every level. Riskiness metrics (CoV) are always ≥ 0; performance ratios flip sign
+when profit &lt; 0, so for pure riskiness ranking use CoV.</p>
+<table>
+  <thead><tr><th>Metric</th><th>Formula (intuition)</th><th>What it tells the risk team</th></tr></thead>
+  <tbody>
+    <tr><td><code>coefficient_of_variation</code></td><td>σ<sub>indep</sub> / EL</td>
+      <td>loss volatility per unit of expected loss, <b>ignoring</b> correlation.</td></tr>
+    <tr><td><code>coefficient_of_variation_copula</code></td><td>σ<sub>copula</sub> / EL</td>
+      <td>same, <b>with</b> correlation. The <b>gap</b> vs the line above is the
+      correlation penalty for that segment.</td></tr>
+    <tr><td><code>raroc</code></td><td>E[Profit] / Capital</td>
+      <td>risk-adjusted return on capital — but correlation-blind; pairs with Sortino
+      for the early-warning signal.</td></tr>
+    <tr><td><code>sharpe_indep</code></td><td>(E[Profit] − rf·Revenue) / σ<sub>indep</sub></td>
+      <td>classic risk-adjusted performance, independence assumption.</td></tr>
+    <tr><td><code>sortino_indep</code></td><td>(E[Profit] − h·Capital) / σ<sub>indep</sub></td>
+      <td>performance over hurdle, downside only, no correlation.</td></tr>
+    <tr><td><code>sortino_copula</code> <span class="pill">primary</span></td>
+      <td>(E[Profit] − h·Capital) / σ<sub>copula</sub></td>
+      <td><b>the headline number.</b> Performance over hurdle vs the
+      <i>correlation-aware</i> downside. Use this to rank segments.</td></tr>
+    <tr><td><code>sortino_simulated</code></td><td>(E[Profit] − h·Capital) / σ<sub>sim</sub></td>
+      <td>same as above but the downside is from a Monte-Carlo draw (captures full
+      tail shape, incl. Student-t / Clayton tails).</td></tr>
+  </tbody>
+</table>
+<p>Plus the portfolio diagnostics:</p>
+<ul>
+  <li><b><code>diversification_ratio</code></b> = Σσᵢ / σ<sub>portfolio</sub> ≥ 1.
+      Near 1 ⇒ a concentrated, undiversified book.</li>
+  <li><b>VaR / ES</b> (<code>risk_metrics.py</code>) — the loss quantile and the
+      expected loss beyond it; ES ≥ VaR ≥ ~EL always.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="outputs">13 · What lands in <code>output/</code></h2>
+<p>Running <code>main.py</code> + <code>demo_clusters.py</code> writes ready-to-use
+artifacts:</p>
+<div class="grid">
+  <div class="card"><h4>Portfolio</h4>
+    <p class="muted"><code>loss_distribution.png</code>, <code>stress_test.csv</code>,
+    <code>top_risks.csv</code>, <code>risk_heatmap.png</code></p></div>
+  <div class="card"><h4>Metrics by segment</h4>
+    <p class="muted"><code>metric_by_city_name.csv</code>,
+    <code>metric_by_risk_archetype.csv</code>,
+    <code>metric_rank_correlation.csv</code>,
+    <code>metric_divergence_flags.csv</code></p></div>
+  <div class="card"><h4>Clusters &amp; anchors</h4>
+    <p class="muted"><code>cluster_geo_summary.csv</code>,
+    <code>cluster_transfer_summary.csv</code>, <code>anchors.csv</code>,
+    <code>anchor_contagion.csv</code>, <code>persons_clustered.csv</code>,
+    <code>cluster_*_subgraph.png</code></p></div>
+  <div class="card"><h4>Ratings &amp; PD</h4>
+    <p class="muted"><code>rating_summary.csv</code>,
+    <code>structural_pd.csv</code>, <code>merton_vs_statistical_pd.png</code>,
+    <code>regime_stress_table.csv</code></p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="invariants">14 · Rules, assumptions &amp; honest caveats</h2>
+<h3>Invariants the platform enforces (don't fight them)</h3>
+<ul>
+  <li><code>person_id</code> is a unique integer — the positional index for all numpy ops.</li>
+  <li>PDs stay in <code>[0,1]</code>; correlation matrices are PSD with unit diagonal.</li>
+  <li>Segment variance is the block-sum of the loss-covariance (INV-6) — never a mean
+      of per-borrower ratios.</li>
+  <li>Stress tests restore copula state via a context manager.</li>
+  <li>The test suite (<code>python test_copula_framework.py</code> → 41 tests) gates every change.</li>
+</ul>
+<div class="danger"><b>Modelling caveats for production</b> (documented in
+<code>METHODOLOGY.md §12</code>):
+<ul style="margin:6px 0 0">
+  <li><b>LGD</b> defaults to a flat <code>0.45</code> — replace with a real
+      loss-given-default model.</li>
+  <li><b>EAD</b> uses an income proxy when exposure isn't supplied — feed true exposure.</li>
+  <li><b>PD calibration</b> on synthetic data is illustrative — validate calibration and
+      back-test on real outcomes before relying on the absolute numbers.</li>
+  <li><b>Gaussian factor copulas have no tail dependence</b> — for deep stress use the
+      Student-t factor copula or Clayton.</li>
+</ul>
+The <i>correlation, copula and metric machinery</i> is verified correct; these are the
+<i>inputs</i> a risk team must own.</div>
+
+<!-- ============================================================ -->
+<h2 id="quickref">15 · Quick reference</h2>
+<table>
+  <thead><tr><th>I want to…</th><th>Do this</th></tr></thead>
+  <tbody>
+    <tr><td>Run everything</td><td><code>python main.py</code> then <code>python demo_clusters.py</code></td></tr>
+    <tr><td>Verify the platform</td><td><code>python test_copula_framework.py</code> → 41 tests</td></tr>
+    <tr><td>Daily early warning</td><td><code>api.flag_divergences()</code></td></tr>
+    <tr><td>Find cascade-prone clusters</td><td><code>api.fragile_clusters()</code> / <code>api.anchors()</code></td></tr>
+    <tr><td>Stress the book</td><td><code>api.run_stress(pd_multiplier=2.0, correlation_boost=0.2)</code></td></tr>
+    <tr><td>One borrower's dossier</td><td><code>api.query_borrower(id)</code></td></tr>
+    <tr><td>Metrics by any segment</td><td><code>calc.by_segment("&lt;column&gt;")</code> (key in column <code>segment</code>)</td></tr>
+    <tr><td>Anchor-contagion uplift</td><td><code>ClusterRiskMetrics(calc, persons).anchor_contagion_table()</code></td></tr>
+    <tr><td>Read the math</td><td><code>METHODOLOGY.md</code></td></tr>
+    <tr><td>Who owns which module</td><td><code>ROLES.md</code></td></tr>
+    <tr><td>Run a role tutorial</td><td><code>tutorials/01–04_*.md</code></td></tr>
+  </tbody>
+</table>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">14</div><div class="l">pipeline stages</div></div>
+  <div class="kpi"><div class="v">20+</div><div class="l">modules</div></div>
+  <div class="kpi"><div class="v">7</div><div class="l">risk-adjusted metrics</div></div>
+  <div class="kpi"><div class="v">10M+</div><div class="l">borrower scale</div></div>
+  <div class="kpi"><div class="v">41</div><div class="l">tests, all passing</div></div>
+</div>
+
+</main>
+</div>
+
+<footer>
+  Copula Default Graph · Risk Department Guide ·
+  companion to <a href="architecture.html">architecture.html</a>,
+  <code>METHODOLOGY.md</code>, and <code>tutorials/</code>.
+  Self-contained — no external assets or network calls.
+</footer>
+</body>
+</html>
