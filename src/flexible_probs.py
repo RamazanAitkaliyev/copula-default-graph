@@ -283,6 +283,8 @@ class FlexibleProbsCalibrator:
         half_life_periods: Optional[float] = None,
         n_factors: int = 5,
         copula_type: str = "clayton",
+        weighting_method: str = "kernel",
+        conditional_alpha: float = 0.25,
     ) -> None:
         """
         Parameters
@@ -291,11 +293,26 @@ class FlexibleProbsCalibrator:
         half_life_periods : time-decay half-life in periods (None = no time decay)
         n_factors         : number of systematic factors in low-rank decomposition
         copula_type       : "clayton" | "gaussian" | "student_t"
+        weighting_method  : how to turn the stress history into regime weights:
+                            * "kernel"         — Gaussian kernel in |z - z*| (fast,
+                              the original behaviour).
+                            * "conditional_fp" — rigorous arpym conditional FP:
+                              crisp window + entropy-pooling moment match (matches
+                              the conditional mean & variance exactly). See
+                              ``src/conditional_fp.py``.
+        conditional_alpha : crisp-window mass for the "conditional_fp" method
+                            (relevance bandwidth, in (0, 1]).
         """
+        if weighting_method not in ("kernel", "conditional_fp"):
+            raise ValueError(
+                f"weighting_method must be 'kernel' or 'conditional_fp', got {weighting_method!r}"
+            )
         self.bandwidth = bandwidth
         self.half_life = half_life_periods
         self.n_factors = n_factors
         self.copula_type = copula_type
+        self.weighting_method = weighting_method
+        self.conditional_alpha = conditional_alpha
 
         self._stress_history: Optional[np.ndarray] = None
         self._avg_corr_history: Optional[np.ndarray] = None
@@ -341,14 +358,28 @@ class FlexibleProbsCalibrator:
         return self
 
     def _compute_weights(self, current_stress: float) -> np.ndarray:
-        """Combine kernel and optional time-decay weights."""
-        kernel_w = gaussian_kernel_weights(
-            self._stress_history, current_stress, self.bandwidth
-        )
+        """
+        Turn the stress history into regime weights for ``current_stress``.
+
+        Uses either the Gaussian kernel (default) or the rigorous arpym
+        conditional-FP estimator, per ``self.weighting_method``. Time-decay is
+        composed on top of either, if a half-life was set.
+        """
+        if self.weighting_method == "conditional_fp":
+            from .conditional_fp import conditional_fp
+            base_w = conditional_fp(
+                self._stress_history, current_stress, alpha=self.conditional_alpha
+            )
+            base_w = np.asarray(base_w, dtype=float).ravel()
+        else:
+            base_w = gaussian_kernel_weights(
+                self._stress_history, current_stress, self.bandwidth
+            )
+
         if self.half_life is not None:
             decay_w = exponential_decay_weights(self._n_history, self.half_life)
-            return combine_weights(kernel_w, decay_w, method="product")
-        return kernel_w
+            return combine_weights(base_w, decay_w, method="product")
+        return base_w
 
     def _corr_to_theta(self, avg_corr: float) -> float:
         """Convert average correlation to Clayton theta via Kendall's tau."""

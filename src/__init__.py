@@ -96,6 +96,44 @@ from .multi_factor_copula import MultiFactorCopula, MultiFactorCopulaParams
 from .geo_clusters import GeoClusterer, GeoClusterConfig
 from .transfer_clusters import TransferClusterer, TransferClusterConfig
 from .cluster_metrics import ClusterRiskMetrics, ClusterMetricsResult
+from .relative_entropy import min_rel_entropy_sp
+from .credit_transitions import (
+    fit_trans_matrix_credit,
+    estimate_generator,
+    cohort_arrays_from_events,
+)
+from .spectrum import (
+    spectrum_shrink,
+    denoise_correlation,
+    marchenko_pastur_pdf,
+    mp_support,
+    ShrinkResult,
+)
+from .conditional_fp import (
+    conditional_fp,
+    crisp_fp,
+    quantile_smooth,
+    effective_scenarios,
+)
+from .low_rank_corr import (
+    low_rank_diag_conditional_corr,
+    fit_factor_loadings,
+    conditional_pc,
+    LowRankResult,
+)
+from .dependence import (
+    schweizer_wolff,
+    copula_invariance_test,
+)
+from .copula_calibration import (
+    build_default_panel,
+    empirical_dependence_measures,
+    calibrate_copula,
+    CalibrationResult,
+    clayton_theta_from_tau,
+    gaussian_rho_from_tau,
+    default_correlation,
+)
 from .config import (
     NetworkConfig,
     CopulaConfig,
@@ -176,6 +214,39 @@ __all__ = [
     'TransferClusterConfig',
     'ClusterRiskMetrics',
     'ClusterMetricsResult',
+    # Entropy pooling / relative-entropy minimisation (arpym port)
+    'min_rel_entropy_sp',
+    # Credit transition-matrix estimation (arpym fit_trans_matrix_credit port)
+    'fit_trans_matrix_credit',
+    'estimate_generator',
+    'cohort_arrays_from_events',
+    # Random-matrix spectrum shrinkage (arpym spectrum_shrink port)
+    'spectrum_shrink',
+    'denoise_correlation',
+    'marchenko_pastur_pdf',
+    'mp_support',
+    'ShrinkResult',
+    # Conditional flexible probabilities (arpym conditional_fp / crisp_fp ports)
+    'conditional_fp',
+    'crisp_fp',
+    'quantile_smooth',
+    'effective_scenarios',
+    # Low-rank diagonal correlation / factor-loading estimation (arpym port)
+    'low_rank_diag_conditional_corr',
+    'fit_factor_loadings',
+    'conditional_pc',
+    'LowRankResult',
+    # Copula dependence measures (arpym schweizer_wolff / invariance test ports)
+    'schweizer_wolff',
+    'copula_invariance_test',
+    # Empirical copula calibration (Plan 07)
+    'build_default_panel',
+    'empirical_dependence_measures',
+    'calibrate_copula',
+    'CalibrationResult',
+    'clayton_theta_from_tau',
+    'gaussian_rho_from_tau',
+    'default_correlation',
     # Configuration
     'NetworkConfig',
     'CopulaConfig',

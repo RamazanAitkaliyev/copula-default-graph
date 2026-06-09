@@ -9,12 +9,20 @@ Ratings (8 states):
 
 Key capabilities:
 - Map PD → rating bucket
-- Estimate annual transition matrix from historical migration counts
-  (self-contained reimplementation of arpym fit_trans_matrix_credit /
-   project_trans_matrix, no external dependency on arpym)
+- Estimate annual transition matrix from historical migration counts. Two
+  estimators are available:
+    * estimate_transition_matrix()  — fast discrete-time MLE (default baseline)
+    * src/credit_transitions.fit_trans_matrix_credit() — rigorous
+      continuous-time generator + half-life weighting + entropy-regularised
+      monotonicity (model-validation grade). Use RatingEngine.from_cohort_data()
+      to build an engine straight from real migration history.
 - Project transition matrix to any horizon (monthly, quarterly, annual)
 - Simulate correlated joint rating paths via t-copula on transitions
 - Summarise portfolio rating distribution and migration risk
+
+Both estimators are self-contained reimplementations of the arpym
+fit_trans_matrix_credit / project_trans_matrix logic — no external dependency
+on arpym.
 """
 
 from __future__ import annotations
@@ -345,6 +353,67 @@ class RatingEngine:
         self.persons: Optional[pd.DataFrame] = None
         self.ratings: Optional[np.ndarray] = None
         self._is_fitted = False
+
+    # ── alternative constructors ───────────────────────────────────────────────
+
+    @classmethod
+    def from_cohort_data(
+        cls,
+        dates: np.ndarray,
+        n_oblig: np.ndarray,
+        n_cum: np.ndarray,
+        tau_hl_years: Optional[float] = None,
+        monotonic: bool = True,
+    ) -> "RatingEngine":
+        """
+        Build a RatingEngine using the rigorous generator-based estimator.
+
+        This is the model-validation-grade path: it estimates a continuous-time
+        generator from cohort/duration data, optionally exponentially weights
+        older periods (half-life), and applies the entropy-regularised
+        monotonicity correction. See ``src/credit_transitions.py`` for the math
+        and the expected array shapes.
+
+        Parameters
+        ----------
+        dates : array (t_bar,) of period boundary dates.
+        n_oblig : array (t_bar, c_bar) obligors at risk per rating per period.
+        n_cum : array (t_bar, c_bar, c_bar) cumulative transition counts.
+        tau_hl_years : optional half-life in years for time-weighting.
+        monotonic : apply the monotonicity correction (default True).
+
+        Returns
+        -------
+        RatingEngine with ``transition_annual`` estimated from the cohort data.
+
+        Raises
+        ------
+        ValueError
+            If the cohort's rating dimension ``c_bar`` does not equal the
+            engine's ``N_RATINGS`` (8). The downstream rating logic
+            (``get_rating_profile``, ``migration_risk``, ``portfolio_distribution``)
+            indexes the transition matrix with rating states ``1..N_RATINGS``, so a
+            mismatched matrix would raise ``IndexError`` for higher-rated
+            borrowers. Re-bucket your cohort to the 8 ``RATING_LABELS`` states
+            first (or build a custom engine) rather than passing a smaller matrix.
+        """
+        from .credit_transitions import fit_trans_matrix_credit
+
+        n_cum = np.asarray(n_cum)
+        c_bar = n_cum.shape[1] if n_cum.ndim == 3 else None
+        if c_bar != N_RATINGS:
+            raise ValueError(
+                f"from_cohort_data expects {N_RATINGS} rating states "
+                f"(matching RATING_LABELS), got cohort with c_bar={c_bar}. "
+                f"Re-bucket the migration data to the 8 standard ratings, or "
+                f"construct RatingEngine(transition_matrix=...) directly with a "
+                f"compatible downstream rating scheme."
+            )
+
+        p = fit_trans_matrix_credit(
+            dates, n_oblig, n_cum, tau_hl=tau_hl_years, monotonic=monotonic
+        )
+        return cls(transition_matrix=p)
 
     def fit(self, persons: pd.DataFrame, pd_col: str = "model_pd") -> "RatingEngine":
         """

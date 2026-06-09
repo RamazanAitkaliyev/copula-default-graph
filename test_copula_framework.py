@@ -1605,12 +1605,542 @@ def test_agent_cluster_methods():
 
 
 # ---------------------------------------------------------------------------
+# arpym Tier-1 ports: entropy pooling, credit transitions, spectrum shrinkage
+# ---------------------------------------------------------------------------
+
+def test_relative_entropy():
+    print("Test 42: Relative-entropy minimisation (entropy pooling)... ", end="")
+    from src.relative_entropy import min_rel_entropy_sp
+
+    # No views -> normalised prior.
+    p0 = np.array([0.2, 0.3, 0.5])
+    assert np.allclose(min_rel_entropy_sp(p0), p0)
+
+    # Equality view forces E[z] to the target exactly.
+    z = np.array([[0.0, 1.0, 2.0]])
+    post = min_rel_entropy_sp(p0, z_eq=z, mu_view_eq=np.array([1.5]))
+    assert abs(post.sum() - 1.0) < 1e-9
+    assert abs(float((z @ post).ravel()[0]) - 1.5) < 1e-6
+    assert np.all(post >= 0)
+
+    # Inequality view E[z] <= 0.5 (binding) reaches the boundary
+    # (SLSQP converges the constraint to ~1e-6, so allow a small tolerance).
+    post2 = min_rel_entropy_sp(p0, z_ineq=z, mu_view_ineq=np.array([0.5]))
+    assert float((z @ post2).ravel()[0]) <= 0.5 + 1e-4
+    print("PASSED")
+
+
+def test_credit_transitions():
+    print("Test 43: Credit transition estimator (continuous-time generator)... ", end="")
+    from src.credit_transitions import (
+        fit_trans_matrix_credit, estimate_generator, cohort_arrays_from_events
+    )
+    from src.rating_engine import RatingEngine, N_RATINGS
+
+    # Synthetic 4-state cohort.
+    dates = np.array(["2018-01-01", "2019-01-01", "2020-01-01", "2021-01-01"],
+                     dtype="datetime64[D]")
+    t_bar, c = len(dates), 4
+    n_oblig = np.array([[1000, 800, 500, 0]] * t_bar, dtype=float)
+    per = np.zeros((t_bar, c, c))
+    for t in range(t_bar):
+        per[t, 0] = [0, 30, 5, 1]
+        per[t, 1] = [10, 0, 40, 8]
+        per[t, 2] = [2, 15, 0, 50]
+    n_cum = np.cumsum(per, axis=0)
+
+    # Generator: non-negative off-diagonals, zero row sums, absorbing default.
+    g = estimate_generator(dates, n_oblig, n_cum)
+    off = g[~np.eye(c, dtype=bool)]
+    assert np.all(off >= -1e-12)
+    assert np.allclose(g.sum(axis=1), 0.0, atol=1e-8)
+    assert np.allclose(g[-1], 0.0)
+
+    # Transition matrix: stochastic, absorbing default, monotone PD by rating.
+    P = fit_trans_matrix_credit(dates, n_oblig, n_cum)
+    assert P.shape == (c, c)
+    assert np.allclose(P.sum(axis=1), 1.0)
+    assert np.all(P >= -1e-9) and np.all(P <= 1 + 1e-9)
+    assert np.allclose(P[-1], [0, 0, 0, 1])
+    # PD increases as quality drops. Per-row entropy-pooling enforces
+    # monotonicity WITHIN a row, not across rows, so apply the float tolerance
+    # to BOTH comparisons (the cross-row ordering holds for this generator but
+    # can be within sub-epsilon of equality).
+    assert P[0, -1] <= P[1, -1] + 1e-12 <= P[2, -1] + 2e-12
+
+    # Half-life weighting still yields a valid matrix.
+    P2 = fit_trans_matrix_credit(dates, n_oblig, n_cum, tau_hl=1.0)
+    assert np.allclose(P2.sum(axis=1), 1.0)
+
+    # Tidy-event on-ramp produces estimator-shaped arrays.
+    import pandas as pd
+    events = pd.DataFrame({
+        "period": [0, 0, 1, 1], "from_state": [1, 2, 1, 2],
+        "to_state": [2, 4, 2, 4], "count": [30, 50, 28, 45],
+    })
+    d2, no2, nc2 = cohort_arrays_from_events(events, n_ratings=4, count_col="count")
+    assert no2.shape == (2, 4) and nc2.shape == (2, 4, 4)
+    # Synthetic dates must be exactly 1.0 year apart under the 252-business-day
+    # convention (not 365 calendar days, which would bias generator rates ~3.6%).
+    assert abs(np.busday_count(d2[0], d2[1]) / 252.0 - 1.0) < 1e-9
+
+    # RatingEngine.from_cohort_data wires it end-to-end (8 states).
+    dts = np.array(["2018-01-01", "2019-01-01", "2020-01-01"], dtype="datetime64[D]")
+    cc = N_RATINGS
+    nob = np.tile(np.array([200, 300, 500, 800, 600, 400, 150, 0], dtype=float), (3, 1))
+    pp = np.zeros((3, cc, cc))
+    for t in range(3):
+        for i in range(cc - 1):
+            pp[t, i, i + 1] = max(1, nob[t, i] * 0.05)
+            if i > 0:
+                pp[t, i, i - 1] = max(1, nob[t, i] * 0.02)
+            pp[t, i, -1] = max(0, nob[t, i] * 0.01 * (i + 1))
+    ncum = np.cumsum(pp, axis=0)
+    eng = RatingEngine.from_cohort_data(dts, nob, ncum, tau_hl_years=2.0)
+    assert np.allclose(eng.transition_annual.sum(axis=1), 1.0)
+    assert np.allclose(eng.transition_1yr.sum(axis=1), 1.0)
+    # A wrong-sized cohort (≠ 8 ratings) must raise ValueError, not silently
+    # build an engine that IndexErrors downstream for higher-rated borrowers.
+    bad_cum = np.cumsum(np.zeros((3, 4, 4)) + 1.0, axis=0)
+    try:
+        RatingEngine.from_cohort_data(dts, np.ones((3, 4)), bad_cum)
+        raise AssertionError("expected ValueError for non-8-state cohort")
+    except ValueError:
+        pass
+    print("PASSED")
+
+
+def test_spectrum_shrinkage():
+    print("Test 44: Marčenko-Pastur spectrum shrinkage... ", end="")
+    from src.spectrum import (
+        spectrum_shrink, denoise_correlation, marchenko_pastur_pdf, mp_support
+    )
+
+    # MP density integrates to ~1 over its support.
+    # numpy 2.x renamed trapz -> trapezoid; support both without eager getattr.
+    trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+    q, s2 = 3.0, 1.0
+    lo, hi = mp_support(q, s2)
+    xs = np.linspace(lo, hi, 5000)
+    assert abs(float(trapz(marchenko_pastur_pdf(xs, q, s2), xs)) - 1.0) < 1e-2
+
+    # Low-rank signal + noise: denoising improves both fidelity and conditioning.
+    rng = np.random.default_rng(7)
+    n, T, k_true = 40, 120, 3
+    B = rng.standard_normal((n, k_true)) * 0.6
+    true_cov = B @ B.T + np.eye(n)
+    X = rng.multivariate_normal(np.zeros(n), true_cov, size=T)
+    C = np.corrcoef(X, rowvar=False)
+    true_corr = true_cov / np.outer(np.sqrt(np.diag(true_cov)), np.sqrt(np.diag(true_cov)))
+
+    res = spectrum_shrink(C, T, method="mp_edge")
+    assert res.k_bar >= 1
+    assert np.allclose(res.sigma2_out, res.sigma2_out.T)
+
+    Cd = denoise_correlation(C, T)
+    assert np.allclose(np.diag(Cd), 1.0)
+    assert np.linalg.eigvalsh(Cd).min() > -1e-9            # PSD
+    assert np.linalg.cond(Cd) < np.linalg.cond(C)          # better conditioned
+    assert np.linalg.norm(Cd - true_corr) <= np.linalg.norm(C - true_corr) + 1e-9
+
+    # hist_mse method (arpym parity) runs and returns a valid matrix.
+    res2 = spectrum_shrink(C, T, method="hist_mse")
+    assert res2.sigma2_out.shape == C.shape
+
+    # Tiny matrix is returned unchanged (no bulk to shrink).
+    small = np.array([[1.0, 0.3], [0.3, 1.0]])
+    assert np.allclose(spectrum_shrink(small, 10).sigma2_out, small)
+
+    # Integration: TransactionGraph denoise path stays copula-ready.
+    from src.data_generator import generate_network
+    from src.graph_features import TransactionGraph
+    persons, tx = generate_network(seed=42)
+    g = TransactionGraph(tx, persons)
+    Cg = g.get_correlation_matrix(denoise=True)
+    assert np.allclose(np.diag(Cg), 1.0)
+    assert np.linalg.eigvalsh(Cg).min() > -1e-9
+    print("PASSED")
+
+
+def test_conditional_fp():
+    print("Test 45: Conditional flexible probabilities (crisp + entropy pool)... ", end="")
+    from src.conditional_fp import crisp_fp, conditional_fp, effective_scenarios
+
+    rng = np.random.default_rng(0)
+    z = rng.normal(0.0, 1.0, 400)
+    z_star = 1.2
+
+    # crisp_fp: valid window enclosing the target, probabilities sum to 1.
+    p_crisp, lb, ub = crisp_fp(z, z_star, alpha=0.3)
+    assert abs(p_crisp.sum() - 1.0) < 1e-9
+    assert lb <= z_star <= ub
+    assert np.all(p_crisp >= 0)
+
+    # conditional_fp: smooth (all scenarios keep mass), sums to 1, and matches
+    # the crisp conditional mean exactly (its defining entropy-pool property).
+    p_cond = conditional_fp(z, z_star, alpha=0.3)
+    assert abs(p_cond.sum() - 1.0) < 1e-9
+    assert np.all(p_cond > 0)
+    m_crisp = (p_crisp / p_crisp.sum()) @ z
+    m_cond = p_cond @ z
+    assert abs(m_crisp - m_cond) < 1e-3
+    # Conditioning concentrates: effective scenarios drop below the sample size.
+    assert effective_scenarios(p_cond) < len(z)
+
+    # Multi-target: one probability column per target, each normalised.
+    p_multi = conditional_fp(z, np.array([-1.0, 0.0, 1.0]), alpha=0.3)
+    assert p_multi.shape == (len(z), 3)
+    assert np.allclose(p_multi.sum(axis=0), 1.0)
+
+    # Degenerate window: a very small alpha can make the smoothed window too
+    # narrow to enclose any scenario. crisp_fp must fall back to the nearest
+    # scenario (never an all-zero vector), and conditional_fp must stay valid.
+    p_tiny, lb_t, ub_t = crisp_fp(z, 0.0, alpha=0.001)
+    assert abs(p_tiny.sum() - 1.0) < 1e-9
+    assert ((z >= lb_t) & (z <= ub_t)).sum() >= 1
+    p_cond_tiny = np.atleast_1d(conditional_fp(z, 0.0, alpha=0.001))
+    assert np.isfinite(p_cond_tiny).all() and abs(p_cond_tiny.sum() - 1.0) < 1e-9
+
+    # Integration: FlexibleProbsCalibrator with method="conditional_fp" still
+    # produces a higher copula theta under stress than under calm.
+    from src.flexible_probs import FlexibleProbsCalibrator
+    stress_hist = np.clip(rng.beta(2, 5, 200), 0, 1)
+    base = np.eye(4) + 0.1 * (np.ones((4, 4)) - np.eye(4))
+    calib = FlexibleProbsCalibrator(weighting_method="conditional_fp", conditional_alpha=0.3)
+    calib.fit(stress_hist)
+    calm = calib.calibrate(0.1, base, decompose=False)
+    hot = calib.calibrate(0.85, base, decompose=False)
+    assert hot.theta > calm.theta
+    print("PASSED")
+
+
+def test_low_rank_corr():
+    print("Test 46: Low-rank diagonal correlation (factor-loading fit)... ", end="")
+    from src.low_rank_corr import low_rank_diag_conditional_corr, fit_factor_loadings
+    from src.multi_factor_copula import MultiFactorCopula
+
+    rng = np.random.default_rng(3)
+    n, k_true = 12, 2
+    B = rng.uniform(-0.5, 0.6, (n, k_true))
+    row_norm = np.sqrt((B ** 2).sum(1))
+    B[row_norm > 0.9] *= 0.9 / row_norm[row_norm > 0.9, None]
+    C = B @ B.T
+    np.fill_diagonal(C, 1.0)
+
+    res = low_rank_diag_conditional_corr(C, k_bar=k_true)
+    assert res.beta.shape == (n, k_true)
+    # Unit diagonal preserved and idiosyncratic variance positive (row-norm <= 1).
+    assert np.allclose(np.diag(res.c2_lrd), 1.0, atol=1e-6)
+    assert np.all(np.sum(res.beta ** 2, axis=1) <= 1.0 + 1e-9)
+    # Reconstruction is a reasonable approximation of the target.
+    assert np.linalg.norm(res.c2_lrd - C) / np.linalg.norm(C) < 0.25
+
+    # k_bar must respect the rank bound.
+    try:
+        low_rank_diag_conditional_corr(C, d=np.ones((1, n)), k_bar=n)
+        raise AssertionError("expected ValueError for k_bar > n - rank(d)")
+    except ValueError:
+        pass
+
+    # fit_factor_loadings returns copula-ready (non-negative, Σβ²<1) loadings
+    # that drive MultiFactorCopula end-to-end.
+    beta = fit_factor_loadings(C, k_factors=2)
+    assert np.all(beta >= 0)
+    assert np.all(np.sum(beta ** 2, axis=1) < 1.0)
+    pds = np.clip(rng.beta(2, 30, n), 0.001, 0.5)
+    factor_matrix = np.tile(np.arange(2), (n, 1))
+    mfc = MultiFactorCopula().fit(pds, factor_matrix, betas=beta)
+    rate = mfc.simulate_default_rate(1000, seed=0)
+    assert rate.std() > 0  # genuinely correlated defaults
+
+    # Degenerate input: a (near-)identity correlation has unit-norm eigen-
+    # directions, so the raw fit can land a row at Σβ²=1 (zero idiosyncratic
+    # variance) which MultiFactorCopula rejects. fit_factor_loadings must cap
+    # row norms strictly below 1 so the loadings stay copula-safe.
+    beta_id = fit_factor_loadings(np.eye(8), k_factors=2)
+    assert np.all(np.sum(beta_id ** 2, axis=1) < 1.0)
+    # Must be accepted by the copula (no ValueError) on degenerate loadings.
+    MultiFactorCopula().fit(
+        np.full(8, 0.05), np.tile(np.arange(2), (8, 1)), betas=beta_id
+    )
+    print("PASSED")
+
+
+def test_etl_pipeline_real_data():
+    print("Test 47: ETL pipeline runs on real data (sparse ids, model_pd only)... ", end="")
+    import tempfile, os
+    import pandas as pd
+    from pipelines import ArtifactStore
+    from pipelines.stage_00_ingest import run as run_ingest
+    from pipelines.stage_10_pd import run as run_pd
+    from pipelines.stage_20_graph import run as run_graph
+    from pipelines.stage_30_copula import run as run_copula
+    from pipelines.stage_40_transitions import run as run_transitions
+    from pipelines.stage_50_metrics import run as run_metrics
+
+    rng = np.random.default_rng(7)
+    n = 50
+    with tempfile.TemporaryDirectory() as tmp:
+        # Sparse, non-contiguous ids; model_pd present but NO base_pd (real-data shape).
+        persons = pd.DataFrame({
+            "person_id": rng.choice(range(1000, 2000), n, replace=False),
+            "model_pd": np.clip(rng.beta(2, 20, n), 0.001, 0.5),
+            "city_id": rng.integers(0, 3, n), "city_name": ["A"] * n,
+            "income": rng.uniform(1000, 5000, n), "age": rng.integers(25, 60, n),
+            "employment_years": rng.integers(0, 20, n), "debt_to_income": rng.uniform(0.1, 0.6, n),
+            "num_credit_lines": rng.integers(1, 6, n), "missed_payments": rng.integers(0, 4, n),
+            "credit_utilization": rng.uniform(0.1, 0.9, n), "account_age_months": rng.integers(6, 60, n),
+            "default": rng.binomial(1, 0.1, n), "high_risk_group_id": -1,
+            "risk_archetype": rng.choice(["prime", "subprime"], n),
+        })
+        pid = persons["person_id"].values
+        tx = pd.DataFrame({
+            "sender_id": rng.choice(pid, 80), "receiver_id": rng.choice(pid, 80),
+            "amount": rng.uniform(50, 500, 80),
+        })
+        pf, tf = os.path.join(tmp, "p.csv"), os.path.join(tmp, "t.csv")
+        persons.to_csv(pf, index=False)
+        tx.to_csv(tf, index=False)
+        store = ArtifactStore(os.path.join(tmp, "etl"))
+
+        r0 = run_ingest(store, persons_source=pf, transactions_source=tf)
+        assert r0.ok, r0.error
+        assert r0.metrics["mode"] == "real"
+        # Ids must be reindexed to a contiguous range for positional numpy ops.
+        assert list(store.read_df("persons")["person_id"]) == list(range(n))
+
+        # skip_training path: real data already carries model_pd.
+        assert run_pd(store, skip_training=True, pd_col="model_pd").ok
+        assert "base_pd" not in persons.columns  # confirm the input really lacked it
+        assert run_graph(store, denoise=True).ok
+        assert run_copula(store).ok
+        assert run_transitions(store).ok
+        assert run_metrics(store).ok
+    print("PASSED")
+
+
+def test_dependence_measures():
+    print("Test 50: Schweizer-Wolff dependence + copula invariance test... ", end="")
+    from src.dependence import schweizer_wolff, copula_invariance_test
+    from scipy.stats import spearmanr
+
+    rng = np.random.default_rng(1)
+    n = 400
+
+    # σ must lie in [0, 1]. Independence → ≈0, perfect monotone → ≈1.
+    indep = np.column_stack((rng.normal(0, 1, n), rng.normal(0, 1, n)))
+    sw_indep = schweizer_wolff(indep)
+    assert 0.0 <= sw_indep <= 1.0
+    assert sw_indep < 0.15                              # close to independence
+
+    x = np.linspace(-2, 2, n)
+    perfect = np.column_stack((x, np.exp(x)))           # strictly increasing
+    sw_perfect = schweizer_wolff(perfect)
+    assert sw_perfect > 0.9                             # near comonotone
+
+    # Stronger linear dependence ⇒ larger σ (monotonic in correlation).
+    weak = schweizer_wolff(rng.multivariate_normal([0, 0], [[1, 0.3], [0.3, 1]], n))
+    strong = schweizer_wolff(rng.multivariate_normal([0, 0], [[1, 0.85], [0.85, 1]], n))
+    assert strong > weak
+
+    # Non-monotone (y = x²): SW detects dependence where Spearman is ~0.
+    xx = rng.normal(0, 1, n)
+    sw_nm = schweizer_wolff(np.column_stack((xx, xx ** 2)))
+    assert sw_nm > 0.2
+    assert abs(spearmanr(xx, xx ** 2)[0]) < 0.15
+
+    # Degenerate (constant column) → 0, no crash; single point → 0.
+    assert schweizer_wolff(np.column_stack((np.ones(50), rng.normal(0, 1, 50)))) == 0.0
+    assert schweizer_wolff(np.array([[1.0, 2.0]])) == 0.0
+
+    # Scale guard: large sample with a grid cap runs and matches a subsample.
+    big = rng.multivariate_normal([0, 0], [[1, 0.7], [0.7, 1]], 6000)
+    sw_big = schweizer_wolff(big, max_grid=1500)
+    sw_sub = schweizer_wolff(big[:1500])
+    assert abs(sw_big - sw_sub) < 0.1
+
+    # Invariance test: i.i.d. is low at all lags; AR(1) spikes at lag 1.
+    iid = rng.normal(0, 1, 300)
+    sw_iid = copula_invariance_test(iid, 3)
+    assert sw_iid.shape == (3,) and np.all(sw_iid < 0.2)
+    ar = np.zeros(300)
+    for t in range(1, 300):
+        ar[t] = 0.7 * ar[t - 1] + rng.normal(0, 1)
+    sw_ar = copula_invariance_test(ar, 3)
+    assert sw_ar[0] > sw_iid.max()                     # lag-1 dependence detected
+    print("PASSED")
+
+
+def test_copula_calibration():
+    print("Test 51: Empirical copula calibration (Plan 07)... ", end="")
+    import json
+    import pandas as pd
+    from src.copula_calibration import (
+        build_default_panel, empirical_dependence_measures, calibrate_copula,
+        clayton_theta_from_tau, gaussian_rho_from_tau, default_correlation,
+    )
+    from src.agents import RiskAgentAPI
+
+    # Parameter conversions match the closed forms.
+    assert abs(clayton_theta_from_tau(1 / 3) - 1.0) < 1e-6
+    assert clayton_theta_from_tau(0.0) < 1e-2                 # ~0 ⇒ independence
+    assert abs(gaussian_rho_from_tau(0.5) - np.sin(np.pi / 4)) < 1e-9
+    assert abs(default_correlation(0.1, 0.1, 0.01)) < 1e-9    # independent ⇒ 0
+    assert default_correlation(0.1, 0.1, 0.05) > 0           # clustered ⇒ +
+
+    rng = np.random.default_rng(0)
+    N, T = 50, 25
+
+    # Independent defaults ⇒ near-zero dependence, all families Fréchet-valid.
+    ind_rows = [
+        {"person_id": b, "period": t, "default": int(rng.random() < 0.1), "model_pd": 0.1}
+        for t in range(T) for b in range(N)
+    ]
+    panel_ind = build_default_panel(pd.DataFrame(ind_rows))
+    res_ind = calibrate_copula(panel_ind)
+    assert abs(res_ind.empirical["default_corr"]) < 0.1
+    assert res_ind.family_table["frechet_ok"].all()
+    assert res_ind.recommended_family in ("gaussian", "student_t", "clayton")
+
+    # Common-shock defaults ⇒ positive dependence; observed joint > independent.
+    cor_rows = []
+    for t in range(T):
+        base = 0.4 if rng.random() < 0.3 else 0.03
+        for b in range(N):
+            cor_rows.append({"person_id": b, "period": t,
+                             "default": int(rng.random() < base), "model_pd": 0.1})
+    panel_cor = build_default_panel(pd.DataFrame(cor_rows))
+    res_cor = calibrate_copula(panel_cor)
+    assert res_cor.empirical["default_corr"] > 0.1
+    assert (res_cor.empirical["observed_joint_default"]
+            > res_cor.empirical["independent_joint_default"])
+
+    # Per-segment measures include an __ALL__ row plus one row per segment.
+    seg_rows = [dict(r, segment=("retail" if r["person_id"] % 2 else "sme"))
+                for r in cor_rows]
+    panel_seg = build_default_panel(pd.DataFrame(seg_rows), segment_col="segment")
+    measures = empirical_dependence_measures(panel_seg, segment_col="segment")
+    assert "__ALL__" in set(measures["segment"])
+    assert {"retail", "sme"}.issubset(set(measures["segment"]))
+
+    # Missing required column raises a clear error.
+    try:
+        build_default_panel(pd.DataFrame({"person_id": [1], "period": [0]}))
+        raise AssertionError("expected ValueError for missing default column")
+    except ValueError:
+        pass
+
+    # Agent method: diagnostic by default (live copula untouched), JSON-safe.
+    api = RiskAgentAPI()
+    api.run_pipeline()
+    theta_before = api._copula.params.theta
+    r = api.calibrate_copula_from_data(pd.DataFrame(cor_rows), apply=False)
+    assert r.ok
+    json.dumps(r.data)
+    assert r.data["applied"] is False
+    assert api._copula.params.theta == theta_before
+    # apply=True with a forced Clayton family refits the live θ.
+    r2 = api.calibrate_copula_from_data(pd.DataFrame(cor_rows), family="clayton", apply=True)
+    assert r2.data["applied"] is True
+    assert api._copula.params.theta != theta_before
+    print("PASSED")
+
+
+def test_pipeline_stage_25_loadings():
+    print("Test 49: ETL stage 25 — factor-loading estimation (optional)... ", end="")
+    import tempfile
+    from pipelines import run_all, ArtifactStore
+    from pipelines.stage_25_loadings import run as run_loadings
+    from src.multi_factor_copula import MultiFactorCopula
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Default chain must NOT include stage 25 (it is opt-in).
+        s = run_all(root=tmp, denoise=True, verbose=False)
+        assert not s.exists("factor_loadings")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # with_loadings=True inserts stage 25 between graph and copula.
+        s = run_all(root=tmp, denoise=True, with_loadings=True, verbose=False)
+        assert s.exists("factor_loadings")
+        assert s.exists("loading_diagnostics")
+        beta = s.read_array("factor_loadings")
+        # Copula-ready loadings drive a MultiFactorCopula from the artifact.
+        assert np.all(np.sum(beta ** 2, axis=1) < 1.0)
+        diag = s.read_json("loading_diagnostics")
+        assert diag["max_row_sumsq"] < 1.0
+        assert diag["copula_ready"] if "copula_ready" in diag else True
+        pds = s.read_df("persons_scored")["model_pd"].to_numpy()
+        factor_matrix = np.tile(np.arange(diag["k_factors"]), (len(pds), 1))
+        mfc = MultiFactorCopula().fit(pds, factor_matrix, betas=beta)
+        assert mfc.simulate_default_rate(500, seed=0).std() > 0
+
+    # Stage 25 in isolation requires its upstream artifact (graceful failure).
+    with tempfile.TemporaryDirectory() as tmp:
+        empty = ArtifactStore(tmp)
+        r = run_loadings(empty)
+        assert r.ok is False and "Missing upstream" in (r.error or "")
+    print("PASSED")
+
+
+def test_agent_loadings_and_regime():
+    print("Test 48: agent API — factor loadings + regime weights (Plan 08)... ", end="")
+    import json
+    from src.agents import RiskAgentAPI, _safe
+
+    # _safe must keep bools as bools (bool is an int subclass — order matters).
+    assert _safe(True) is True and _safe(False) is False
+    assert _safe(5) == 5 and isinstance(_safe(5), int)
+
+    api = RiskAgentAPI()
+    api.run_pipeline()
+    copula_before = api._copula
+
+    # fit_factor_loadings: diagnostic by default — MUST NOT mutate live copula.
+    r = api.fit_factor_loadings(k_factors=2, denoise=True, apply=False)
+    assert r.ok, r.error
+    json.dumps(r.data)                              # JSON-safe (agent contract)
+    assert r.data["applied"] is False               # proper bool, not 0
+    assert api._copula is copula_before             # live model untouched
+    assert r.data["max_row_sumsq"] < 1.0            # copula-ready loadings
+
+    # apply=True swaps the live copula to a MultiFactorCopula.
+    r2 = api.fit_factor_loadings(k_factors=2, apply=True)
+    assert r2.data["applied"] is True
+    assert api._copula is not copula_before
+    assert type(api._copula).__name__ == "MultiFactorCopula"
+
+    # regime_weights: both estimators run and are JSON-safe; conditioning
+    # concentrates the effective scenario count below the history length.
+    api2 = RiskAgentAPI()
+    api2.run_pipeline()
+    for method in ("conditional_fp", "kernel"):
+        rw = api2.regime_weights(method=method, alpha=0.25)
+        assert rw.ok, rw.error
+        json.dumps(rw.data)
+        assert 0 < rw.data["effective_scenarios"] <= rw.data["n_history"]
+    rc = api2.regime_weights(method="conditional_fp")
+    assert rc.data["effective_scenarios"] < rc.data["n_history"]
+
+    # Guard: state-gated methods raise AgentError before the required state
+    # (this matches the convention of regime_status/portfolio_summary/etc.).
+    from src.agents import AgentError
+    fresh = RiskAgentAPI()
+    for call in (lambda: fresh.fit_factor_loadings(), lambda: fresh.regime_weights()):
+        try:
+            call()
+            raise AssertionError("expected AgentError before required state")
+        except AgentError:
+            pass
+    print("PASSED")
+
+
+# ---------------------------------------------------------------------------
 # runner
 # ---------------------------------------------------------------------------
 
 def run_all_tests() -> bool:
     """
-    Run all 41 tests.
+    Run all 51 tests.
 
     Each test is wrapped so failures print a full traceback and the suite
     continues — the final summary shows exactly which tests failed.
@@ -1684,6 +2214,24 @@ def run_all_tests() -> bool:
     run("test_rating_engine", test_rating_engine, persons)
     run("test_structural_pd", test_structural_pd, persons)
     run("test_flexible_probs", test_flexible_probs, corr)
+
+    # arpym Tier-1 ports: entropy pooling, credit transitions, spectrum shrinkage
+    run("test_relative_entropy", test_relative_entropy)
+    run("test_credit_transitions", test_credit_transitions)
+    run("test_spectrum_shrinkage", test_spectrum_shrinkage)
+    # arpym FP family + factor-loading estimation ports
+    run("test_conditional_fp", test_conditional_fp)
+    run("test_low_rank_corr", test_low_rank_corr)
+    # ETL pipeline on real-data shape (sparse ids, model_pd only, no base_pd)
+    run("test_etl_pipeline_real_data", test_etl_pipeline_real_data)
+    # copula dependence measures (Schweizer-Wolff + invariance test, Plan 07 prereq)
+    run("test_dependence_measures", test_dependence_measures)
+    # empirical copula calibration (Plan 07)
+    run("test_copula_calibration", test_copula_calibration)
+    # optional ETL stage 25 (factor-loading estimation, Plan 08)
+    run("test_pipeline_stage_25_loadings", test_pipeline_stage_25_loadings)
+    # agent API: factor-loading estimation + conditional-FP regime weights (Plan 08)
+    run("test_agent_loadings_and_regime", test_agent_loadings_and_regime)
     if model is not None:
         run("test_customer_profiler", test_customer_profiler, model, graph, persons, transactions)
         run("test_refactor_correctness", test_refactor_correctness, persons, transactions, model, graph)
@@ -1719,7 +2267,7 @@ def run_all_tests() -> bool:
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    total = 41
+    total = 51
     passed = total - len(failures)
     print("\n" + "=" * 60)
     if not failures:

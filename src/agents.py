@@ -109,12 +109,14 @@ class AgentError(RuntimeError):
 
 def _safe(v: Any) -> Any:
     """Convert numpy types to JSON-serialisable Python types."""
+    # bool must be checked BEFORE int: in Python bool is a subclass of int, so
+    # isinstance(True, int) is True and a bare int check would coerce True -> 1.
+    if isinstance(v, (np.bool_, bool)):
+        return bool(v)
     if isinstance(v, (np.floating, float)):
         return None if np.isnan(v) else float(v)
     if isinstance(v, (np.integer, int)):
         return int(v)
-    if isinstance(v, (np.bool_, bool)):
-        return bool(v)
     if isinstance(v, np.ndarray):
         return [_safe(x) for x in v.tolist()]
     if isinstance(v, dict):
@@ -1269,6 +1271,231 @@ class RiskAgentAPI:
             summary=(f"Risk metrics for {len(tbl)} {dimension} clusters "
                      f"(EAD, expected loss, σ, CoV, RAROC, Sortino)."),
         )
+
+    # ── ARPM factor-loading estimation & conditional-FP regime weighting ──────
+    #
+    # These expose two ARPM ports (see src/low_rank_corr.py and
+    # src/conditional_fp.py) through the agent façade. Both are diagnostic by
+    # default and never mutate the live copula unless explicitly told to.
+
+    def fit_factor_loadings(
+        self,
+        k_factors: int = 2,
+        denoise: bool = True,
+        apply: bool = False,
+    ) -> AgentResult:
+        """
+        Fit factor-copula loadings from the transaction-graph correlation matrix.
+
+        Uses the ARPM low-rank diagonal estimator
+        (``low_rank_corr.fit_factor_loadings``) to turn the graph-derived
+        correlation into an (n, k) loading matrix — the input
+        ``MultiFactorCopula`` wants — so the factor structure is fitted from data
+        instead of configured by hand.
+
+        Parameters
+        ----------
+        k_factors : int
+            Number of systematic factors to fit.
+        denoise : bool
+            Apply Marčenko-Pastur spectrum shrinkage to the correlation matrix
+            before fitting (recommended — cleaner loadings).
+        apply : bool
+            If True, refit the live copula as a MultiFactorCopula using the
+            fitted loadings. If False (default), only report the fit — the live
+            model is left untouched (diagnostic mode).
+
+        Returns
+        -------
+        AgentResult
+            data: dict with k_factors, n_borrowers, avg_loading,
+                  max_row_sumsq, implied_avg_within_factor_corr, applied (bool).
+        """
+        self._require_state("graph", "fit_factor_loadings")
+        if self._graph is None:
+            raise AgentError("Transaction graph not available; run the pipeline first.")
+
+        from .low_rank_corr import fit_factor_loadings as _fit_loadings
+
+        corr = self._graph.get_correlation_matrix(denoise=denoise)
+        beta = _fit_loadings(corr, k_factors=k_factors)
+
+        row_sumsq = np.sum(beta ** 2, axis=1)
+        # Implied within-factor correlation ≈ mean β_i·β_j for loaded borrowers.
+        loaded = beta[row_sumsq > 1e-9]
+        implied_corr = float(np.mean(loaded @ loaded.T)) if len(loaded) > 1 else 0.0
+
+        applied = False
+        if apply:
+            from .multi_factor_copula import MultiFactorCopula
+            pds = self._persons["model_pd"].to_numpy()
+            # One systematic-factor column per fitted factor; every borrower loads
+            # on all of them (the loadings carry the per-borrower weighting).
+            factor_matrix = np.tile(np.arange(k_factors), (len(pds), 1))
+            self._copula = MultiFactorCopula().fit(pds, factor_matrix, betas=beta)
+            self._state = "copula" if self._state in ("graph", "pd_model") else self._state
+            applied = True
+
+        data = _safe({
+            "k_factors": k_factors,
+            "denoised": denoise,
+            "n_borrowers": int(beta.shape[0]),
+            "avg_loading": float(np.mean(beta)),
+            "max_row_sumsq": float(np.max(row_sumsq)),
+            "implied_avg_within_factor_corr": implied_corr,
+            "applied": applied,
+        })
+        summary = (
+            f"Fitted {k_factors}-factor loadings from "
+            f"{'denoised ' if denoise else ''}graph correlation: "
+            f"avg loading={data['avg_loading']:.3f}, "
+            f"max Σβ²={data['max_row_sumsq']:.3f} (<1 ⇒ copula-ready). "
+            + ("Applied to the live copula (now multi-factor)."
+               if applied else "Diagnostic only — live copula unchanged (apply=True to use).")
+        )
+        return AgentResult(ok=True, data=data, summary=summary)
+
+    def regime_weights(
+        self,
+        current_stress: Optional[float] = None,
+        method: str = "conditional_fp",
+        alpha: float = 0.25,
+        n_history: int = 250,
+    ) -> AgentResult:
+        """
+        Compute regime-conditional scenario weights for the current stress level.
+
+        Uses the rigorous ARPM conditional-FP estimator
+        (``conditional_fp.conditional_fp``) — crisp window + entropy-pooling
+        moment match — to weight a synthetic stress history by relevance to the
+        current macro state, and reports how concentrated those weights are.
+
+        Parameters
+        ----------
+        current_stress : float, optional
+            Current stress level in [0, 1]. Defaults to the portfolio's
+            model_pd-implied stress (same proxy as ``regime_status``).
+        method : {"conditional_fp", "kernel"}
+            Weighting estimator (see ``FlexibleProbsCalibrator``).
+        alpha : float
+            Crisp-window mass for the conditional-FP method.
+        n_history : int
+            Length of the synthetic stress history to weight.
+
+        Returns
+        -------
+        AgentResult
+            data: dict with current_stress, method, effective_scenarios,
+                  concentration_ratio, regime_theta, base_theta.
+        """
+        self._require_state("pd_model", "regime_weights")
+        from .conditional_fp import effective_scenarios
+        from .flexible_probs import FlexibleProbsCalibrator
+
+        if current_stress is None:
+            current_stress = float(np.clip(
+                (self._persons["model_pd"].mean() - 0.05) / 0.20, 0.0, 1.0
+            ))
+
+        # Synthetic stress history (monotone-correlation proxy) to weight.
+        rng = np.random.default_rng(0)
+        stress_history = np.clip(rng.beta(2, 5, n_history), 0.0, 1.0)
+
+        calib = FlexibleProbsCalibrator(weighting_method=method, conditional_alpha=alpha)
+        calib.fit(stress_history)
+        weights = calib._compute_weights(current_stress)
+        weights = np.asarray(weights, dtype=float).ravel()
+        weights = weights / weights.sum() if weights.sum() > 0 else weights
+
+        ess = effective_scenarios(weights)
+        base_theta = float(self._copula.params.theta) if self._copula is not None else float("nan")
+
+        # Regime theta at this stress (reuse the calibrator's corr→theta path).
+        base_corr = np.eye(4) + 0.1 * (np.ones((4, 4)) - np.eye(4))
+        regime = calib.calibrate(current_stress, base_corr, decompose=False)
+
+        data = _safe({
+            "current_stress": current_stress,
+            "method": method,
+            "effective_scenarios": ess,
+            "n_history": n_history,
+            "concentration_ratio": ess / n_history,
+            "regime_theta": float(regime.theta),
+            "base_theta": base_theta,
+        })
+        summary = (
+            f"Regime weights ({method}) at stress={current_stress:.2f}: "
+            f"effective scenarios={ess:.0f}/{n_history} "
+            f"({data['concentration_ratio']:.0%} of history informative), "
+            f"regime θ={float(regime.theta):.3f}."
+        )
+        return AgentResult(ok=True, data=data, summary=summary)
+
+    def calibrate_copula_from_data(
+        self,
+        events: "pd.DataFrame",
+        family: str = "auto",
+        segment_col: Optional[str] = None,
+        apply: bool = False,
+    ) -> AgentResult:
+        """
+        Calibrate copula parameters from an OBSERVED default panel (Plan 07).
+
+        Estimates empirical default dependence (Kendall τ, Schweizer-Wolff,
+        default correlation, observed vs independent joint-default) and maps it
+        to Gaussian / Student-t / Clayton parameters, recommending a family by
+        goodness-of-fit. Diagnostic by default — it does not change the live
+        copula unless ``apply=True``.
+
+        Parameters
+        ----------
+        events : DataFrame
+            Long default panel: borrower / period / default[/ model_pd / segment].
+        family : {"auto", "gaussian", "student_t", "clayton"}
+            Force a family or auto-recommend.
+        segment_col : str, optional
+            Break the empirical measures out by this column too.
+        apply : bool
+            If True and the recommended family is Clayton, refit the live dense
+            copula's θ to the calibrated value (other families are reported only,
+            since the live model is a Clayton CopulaDefaultModel by default).
+
+        Returns
+        -------
+        AgentResult
+            data: dict with recommended_family, recommended_params,
+                  empirical measures, family_table (list of dicts), applied.
+        """
+        from .copula_calibration import build_default_panel, calibrate_copula
+
+        panel = build_default_panel(events, segment_col=segment_col)
+        result = calibrate_copula(panel, family=family, segment_col=segment_col)
+
+        applied = False
+        if apply and result.recommended_family == "clayton" and self._copula is not None:
+            theta = result.recommended_params.get("theta")
+            if theta is not None and hasattr(self._copula, "params"):
+                self._copula.params.theta = float(theta)
+                applied = True
+
+        data = _safe({
+            "recommended_family": result.recommended_family,
+            "recommended_params": result.recommended_params,
+            "empirical": result.empirical,
+            "family_table": result.family_table.to_dict(orient="records"),
+            "warnings": result.warnings,
+            "applied": applied,
+        })
+        summary = (
+            f"Calibrated copula from {len(panel)} borrower-period observations: "
+            f"recommend {result.recommended_family} "
+            f"({', '.join(f'{k}={v:.3f}' for k, v in result.recommended_params.items())}), "
+            f"empirical default-corr={result.empirical.get('default_corr', 0):.3f}. "
+            + ("Applied θ to the live copula." if applied
+               else "Diagnostic only — live copula unchanged.")
+        )
+        return AgentResult(ok=True, data=data, summary=summary,
+                           warnings=result.warnings)
 
     def state(self) -> str:
         """

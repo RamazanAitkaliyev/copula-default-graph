@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang='ru'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>Интеграция ARPM — Что нового в платформе кредитных рисков</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --navy:   #0f172a;
+  --blue:   #1e40af;
+  --blue2:  #3b82f6;
+  --blue3:  #93c5fd;
+  --green:  #16a34a;
+  --amber:  #d97706;
+  --red:    #dc2626;
+  --purple: #7c3aed;
+  --gray1:  #f8fafc;
+  --gray2:  #e2e8f0;
+  --gray3:  #94a3b8;
+  --gray4:  #475569;
+  --text:   #1e293b;
+  --white:  #ffffff;
+  --sidebar-w: 280px;
+  --header-h:  60px;
+  --shadow: 0 2px 12px rgba(0,0,0,0.10);
+}
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Segoe UI', 'Arial', system-ui, sans-serif;
+  background: var(--gray1);
+  color: var(--text);
+  display: flex; flex-direction: column; min-height: 100vh;
+}
+.top-header {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--header-h);
+  background: var(--navy);
+  display: flex; align-items: center; padding: 0 24px;
+  z-index: 200; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.top-header h1 { color: var(--white); font-size: 1rem; font-weight: 600; letter-spacing: 0.01em; }
+.top-header .badge {
+  margin-left: 16px; background: var(--blue); color: var(--white);
+  font-size: 0.7rem; padding: 2px 10px; border-radius: 12px;
+}
+.header-right { margin-left: auto; color: var(--gray3); font-size: 0.8rem; }
+.sidebar {
+  position: fixed; top: var(--header-h); left: 0; bottom: 0;
+  width: var(--sidebar-w); background: var(--navy);
+  overflow-y: auto; z-index: 100; padding-bottom: 40px;
+}
+.sidebar-section {
+  padding: 20px 16px 8px;
+  color: var(--gray3); font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.sidebar-section:first-child { border-top: none; }
+.sidebar a {
+  display: block; padding: 8px 20px;
+  color: rgba(255,255,255,0.65); font-size: 0.82rem; text-decoration: none;
+  border-left: 3px solid transparent; transition: all 0.15s;
+}
+.sidebar a:hover, .sidebar a.active {
+  color: var(--white); background: rgba(255,255,255,0.07);
+  border-left-color: var(--blue2);
+}
+.sidebar a .step-num {
+  display: inline-block; min-width: 22px;
+  background: rgba(59,130,246,0.25); color: var(--blue3);
+  font-size: 0.65rem; font-weight: 700; border-radius: 4px;
+  text-align: center; padding: 1px 4px; margin-right: 8px;
+}
+.main {
+  margin-left: var(--sidebar-w); margin-top: var(--header-h);
+  padding: 36px 40px 80px; max-width: 1100px;
+}
+.section {
+  background: var(--white); border-radius: 12px;
+  box-shadow: var(--shadow); margin-bottom: 36px; overflow: hidden;
+}
+.section-header {
+  padding: 20px 28px 16px; border-bottom: 2px solid var(--gray2);
+  display: flex; align-items: center; gap: 14px;
+}
+.section-num {
+  background: var(--blue); color: var(--white);
+  font-size: 0.75rem; font-weight: 700;
+  padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+}
+.section-header h2 { font-size: 1.1rem; font-weight: 700; color: var(--navy); }
+.section-header .tag {
+  margin-left: auto; font-size: 0.7rem; padding: 3px 10px;
+  border-radius: 10px; font-weight: 600; letter-spacing: 0.03em;
+}
+.tag-theory   { background: #ede9fe; color: #6d28d9; }
+.tag-pipeline { background: #dcfce7; color: #15803d; }
+.tag-metrics  { background: #fef3c7; color: #92400e; }
+.tag-output   { background: #dbeafe; color: #1d4ed8; }
+.tag-fix      { background: #fee2e2; color: #b91c1c; }
+.section-body { padding: 24px 28px; }
+.theory-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;
+}
+@media (max-width: 800px) { .theory-grid { grid-template-columns: 1fr; } }
+.theory-card {
+  background: #f8fafc; border: 1px solid var(--gray2);
+  border-radius: 8px; padding: 18px 20px;
+}
+.theory-card h3 { font-size: 0.88rem; font-weight: 700; margin-bottom: 10px; color: var(--navy); }
+.theory-card p  { font-size: 0.83rem; line-height: 1.65; color: var(--gray4); }
+.formula-block {
+  background: var(--navy); color: #e2e8f0;
+  border-radius: 8px; padding: 16px 20px; margin: 14px 0;
+  font-family: 'Courier New', monospace; font-size: 0.82rem; line-height: 1.8;
+  overflow-x: auto;
+}
+.formula-block .comment   { color: #64748b; }
+.formula-block .highlight { color: #93c5fd; font-weight: 700; }
+.insight {
+  border-left: 4px solid var(--blue2);
+  background: #eff6ff; padding: 14px 18px; border-radius: 0 8px 8px 0;
+  margin: 14px 0; font-size: 0.84rem; line-height: 1.65;
+}
+.insight.warning { border-left-color: var(--amber); background: #fffbeb; }
+.insight.success { border-left-color: var(--green);  background: #f0fdf4; }
+.insight.danger  { border-left-color: var(--red);    background: #fef2f2; }
+.insight strong  { display: block; margin-bottom: 4px; font-size: 0.82rem; }
+.pipeline-flow { display: flex; flex-wrap: wrap; gap: 0; margin: 20px 0; align-items: stretch; }
+.pipe-step {
+  flex: 1; min-width: 100px;
+  background: var(--gray1); border: 1px solid var(--gray2);
+  padding: 12px 8px; text-align: center; position: relative; font-size: 0.72rem;
+}
+.pipe-step:not(:last-child)::after {
+  content: '\25B6'; position: absolute; right: -11px; top: 50%;
+  transform: translateY(-50%); color: var(--gray3); font-size: 0.9rem; z-index: 1;
+}
+.pipe-step .ps-num {
+  display: inline-block; background: var(--blue); color: white;
+  border-radius: 50%; width: 22px; height: 22px; line-height: 22px;
+  font-size: 0.65rem; font-weight: 700; margin-bottom: 6px;
+}
+.pipe-step .ps-name { font-weight: 600; color: var(--navy); line-height: 1.3; }
+.pipe-step .ps-out  { color: var(--gray3); font-size: 0.66rem; margin-top: 4px; }
+.pipe-step.active  { background: #eff6ff; border-color: var(--blue2); }
+.pipe-step.metrics { background: #fffbeb; border-color: var(--amber); }
+.pipe-step.optional { background: #f5f3ff; border-color: var(--purple); border-style: dashed; }
+.stat-row  { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.stat-card {
+  flex: 1; min-width: 130px;
+  background: var(--gray1); border: 1px solid var(--gray2);
+  border-radius: 8px; padding: 16px 18px;
+}
+.stat-card .sc-label { font-size: 0.72rem; color: var(--gray3); text-transform: uppercase; letter-spacing: 0.06em; }
+.stat-card .sc-value { font-size: 1.6rem; font-weight: 700; color: var(--navy); margin-top: 4px; }
+.stat-card .sc-sub   { font-size: 0.72rem; color: var(--gray4); margin-top: 2px; }
+.stat-card.green  { border-left: 4px solid var(--green);  }
+.stat-card.amber  { border-left: 4px solid var(--amber);  }
+.stat-card.red    { border-left: 4px solid var(--red);    }
+.stat-card.blue   { border-left: 4px solid var(--blue2);  }
+.stat-card.purple { border-left: 4px solid var(--purple); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin: 12px 0; }
+.data-table thead tr  { background: var(--navy); color: var(--white); }
+.data-table thead th  { padding: 9px 12px; text-align: left; font-weight: 600; font-size: 0.72rem; }
+.data-table tbody tr:nth-child(even) { background: #f8fafc; }
+.data-table tbody tr:hover { background: #eff6ff; }
+.data-table tbody td { padding: 8px 12px; color: var(--gray4); }
+.data-table td.mono { font-family: 'Courier New', monospace; font-size: 0.74rem; }
+.table-scroll { overflow-x: auto; }
+.chart-img {
+  width: 100%; border-radius: 8px; border: 1px solid var(--gray2);
+  display: block; margin: 12px 0;
+}
+.pill { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.72rem; font-weight: 600; margin: 2px; }
+.pill-blue   { background: #dbeafe; color: #1d4ed8; }
+.pill-green  { background: #dcfce7; color: #15803d; }
+.pill-amber  { background: #fef3c7; color: #92400e; }
+.pill-red    { background: #fee2e2; color: #b91c1c; }
+.pill-purple { background: #ede9fe; color: #6d28d9; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+hr.divider { border: none; border-top: 1px solid var(--gray2); margin: 20px 0; }
+details { margin: 10px 0; }
+details summary {
+  cursor: pointer; padding: 10px 14px;
+  background: var(--gray1); border: 1px solid var(--gray2);
+  border-radius: 6px; font-size: 0.82rem; font-weight: 600;
+  color: var(--blue); user-select: none;
+}
+details summary:hover { background: #eff6ff; }
+details[open] summary { border-radius: 6px 6px 0 0; border-bottom-color: transparent; }
+details .details-body {
+  border: 1px solid var(--gray2); border-top: none;
+  padding: 16px 18px; border-radius: 0 0 6px 6px; background: var(--white);
+}
+.muted { color: var(--gray3); font-size: 0.8rem; font-style: italic; }
+.section[id] { scroll-margin-top: 80px; }
+.codebox {
+  background: #0f172a; color: #e2e8f0; border-radius: 8px;
+  padding: 14px 18px; margin: 12px 0; font-family: 'Courier New', monospace;
+  font-size: 0.78rem; line-height: 1.7; overflow-x: auto;
+}
+.codebox .kw { color: #c084fc; } .codebox .fn { color: #93c5fd; }
+.codebox .st { color: #86efac; } .codebox .cm { color: #64748b; }
+</style>
+</head>
+<body>
+<header class='top-header'><h1>Интеграция ARPM в платформу кредитных рисков</h1><span class='badge'>7 новых модулей &middot; 88 функций</span><span class='header-right'>Самодостаточные порты numpy/scipy &middot; 51 тест</span></header>
+
+<nav class="sidebar">
+  <div class="sidebar-section">Обзор</div>
+  <a href="#overview">Что сделано и зачем</a>
+  <a href="#principles">Принципы интеграции</a>
+  <a href="#pipeline-flow">ETL-конвейер модулей</a>
+
+  <div class="sidebar-section">Новые математические модули</div>
+  <a href="#mod-entropy"><span class="step-num">M1</span>Энтропийный пулинг</a>
+  <a href="#mod-transitions"><span class="step-num">M2</span>Матрицы миграции</a>
+  <a href="#mod-spectrum"><span class="step-num">M3</span>Очистка спектра (MP)</a>
+  <a href="#mod-condfp"><span class="step-num">M4</span>Гибкие вероятности</a>
+  <a href="#mod-loadings"><span class="step-num">M5</span>Факторные нагрузки</a>
+  <a href="#mod-dependence"><span class="step-num">M6</span>Меры зависимости</a>
+  <a href="#mod-calibration"><span class="step-num">M7</span>Калибровка копулы</a>
+
+  <div class="sidebar-section">Инженерия</div>
+  <a href="#etl">ETL-слой и ноутбуки</a>
+  <a href="#agents">Агентский API</a>
+  <a href="#bugfix">Найденная ошибка в ARPM</a>
+
+  <div class="sidebar-section">Итоги</div>
+  <a href="#results">Проверка и результаты</a>
+  <a href="#roadmap">Что дальше</a>
+</nav>
+
+<main class='main'>
+
+<!-- ============ OVERVIEW ============ -->
+<div class="section" id="overview">
+  <div class="section-header">
+    <span class="section-num">Обзор</span>
+    <h2>Что сделано в этой итерации и зачем</h2>
+    <span class="tag tag-output">Резюме</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.9rem;line-height:1.7;margin-bottom:18px;">Цель итерации — перенести строгие математические и финансовые методы из набора инструментов <strong>ARPM (arpym)</strong> в нашу платформу кредитных рисков, не добавляя внешних зависимостей. Каждый метод реализован как <em>самодостаточный порт</em> на чистых numpy/scipy и встроен в существующие модули, чтобы заменить «заданные вручную» допущения <em>оценками на основе данных</em>.</p>
+
+    <div class="stat-row">
+      <div class="stat-card blue"><div class="sc-label">Новых модулей</div><div class="sc-value">7</div><div class="sc-sub">портов arpym в src/</div></div>
+      <div class="stat-card green"><div class="sc-label">Публичных функций</div><div class="sc-value">88</div><div class="sc-sub">экспортируется из пакета</div></div>
+      <div class="stat-card purple"><div class="sc-label">Тестов</div><div class="sc-value">51</div><div class="sc-sub">49 проходят*</div></div>
+      <div class="stat-card amber"><div class="sc-label">Этапов ETL</div><div class="sc-value">7</div><div class="sc-sub">+ 7 ноутбуков</div></div>
+    </div>
+    <p class="muted">* 2 теста требуют опциональной библиотеки <code>python-louvain</code> для кластеризации графа и не связаны с этой работой.</p>
+
+    <div class="theory-grid">
+      <div class="theory-card"><h3>&#128200; От допущений к оценкам</h3><p>Раньше: матрица корреляций бралась из графа «как есть», нагрузки факторов задавались равными, параметры копулы конфигурировались. Теперь все три можно <em>оценить из наблюдаемых данных</em> и сравнить с конфигурацией.</p></div>
+      <div class="theory-card"><h3>&#128230; Порты, а не зависимости</h3><p>ARPM не становится зависимостью. <code>statsmodels</code> и <code>skrmt</code> заменены реализациями на numpy/scipy. Стек остаётся: numpy, pandas, scipy, scikit-learn, matplotlib.</p></div>
+      <div class="theory-card"><h3>&#129513; Модульность для команды</h3><p>ETL-слой делит работу на независимые этапы, которые общаются только через диск (<code>ArtifactStore</code>). Разные люди владеют разными этапами; каждый ноутбук запускается отдельно.</p></div>
+      <div class="theory-card"><h3>&#9989; Совместимость</h3><p>Все существующие публичные API сохранены. Новые методы добавлены как <em>дополнительные пути</em> (с флагами <code>denoise=</code>, <code>apply=</code>), старые остаются поведением по умолчанию.</p></div>
+    </div>
+
+    <div class="insight success"><strong>Главный результат</strong>Риск-команда получила инструменты, отвечающие на вопрос «откуда взялись параметры?»: матрицы миграции рейтингов — из когорт, корреляции — очищенные от шума, факторные нагрузки — подогнанные, параметры копулы — откалиброванные по дефолтам. Всё с проверкой против известных математических ответов.</div>
+  </div>
+</div>
+
+<!-- ============ PRINCIPLES ============ -->
+<div class="section" id="principles">
+  <div class="section-header">
+    <span class="section-num">Принципы</span>
+    <h2>Принципы интеграции</h2>
+    <span class="tag tag-theory">Методология</span>
+  </div>
+  <div class="section-body">
+    <div class="two-col">
+      <div>
+        <h3 style="font-size:0.9rem;color:var(--navy);margin-bottom:10px;">Инварианты, которые соблюдались</h3>
+        <ul style="font-size:0.84rem;line-height:1.9;color:var(--gray4);padding-left:18px;">
+          <li>Стек зависимостей: только numpy / pandas / scipy / scikit-learn / matplotlib.</li>
+          <li>Сегментные метрики используют <strong>блочную сумму</strong> матрицы ковариаций потерь — никогда не усредняют отношения по заёмщикам.</li>
+          <li>Никаких плотных матриц n&times;n на масштабируемых путях.</li>
+          <li>Каждый модуль сопровождается тестом против <em>известного</em> ответа.</li>
+          <li>Существующие тесты продолжают проходить.</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="font-size:0.9rem;color:var(--navy);margin-bottom:10px;">Как проверялась корректность</h3>
+        <ul style="font-size:0.84rem;line-height:1.9;color:var(--gray4);padding-left:18px;">
+          <li>Независимость &rarr; мера зависимости = 0.</li>
+          <li>Полная зависимость &rarr; мера = 1.</li>
+          <li>Энтропийный пулинг &rarr; точное совпадение среднего и дисперсии.</li>
+          <li>Подгонка факторов &rarr; восстановление известной нагрузки.</li>
+          <li>Матрица миграции &rarr; монотонная PD по рейтингу.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PIPELINE FLOW ============ -->
+<div class="section" id="pipeline-flow">
+  <div class="section-header">
+    <span class="section-num">Карта</span>
+    <h2>ETL-конвейер: где живёт каждый новый модуль</h2>
+    <span class="tag tag-pipeline">Конвейер</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;margin-bottom:6px;">Семь независимо запускаемых этапов. Каждый читает и пишет только артефакты на диске (<code>output/etl/</code>), поэтому этапы можно перезапускать и владеть ими по отдельности.</p>
+    <div class="pipeline-flow">
+      <div class="pipe-step active"><span class="ps-num">00</span><div class="ps-name">Ingest</div><div class="ps-out">persons, transactions</div></div>
+      <div class="pipe-step"><span class="ps-num">10</span><div class="ps-name">PD-модель</div><div class="ps-out">model_pd</div></div>
+      <div class="pipe-step"><span class="ps-num">20</span><div class="ps-name">Граф</div><div class="ps-out">corr_matrix</div></div>
+      <div class="pipe-step optional"><span class="ps-num">25</span><div class="ps-name">Нагрузки*</div><div class="ps-out">factor_loadings</div></div>
+      <div class="pipe-step"><span class="ps-num">30</span><div class="ps-name">Копула</div><div class="ps-out">joint_default</div></div>
+      <div class="pipe-step"><span class="ps-num">40</span><div class="ps-name">Миграции</div><div class="ps-out">transition_matrix</div></div>
+      <div class="pipe-step metrics"><span class="ps-num">50</span><div class="ps-name">Метрики</div><div class="ps-out">risk_adjusted</div></div>
+    </div>
+    <p class="muted">* Этап 25 (подгонка факторных нагрузок) — опциональный, вне цепочки по умолчанию; включается через <code>run_all(with_loadings=True)</code>.</p>
+    <div class="insight"><strong>Связь модулей и этапов</strong>Очистка спектра (M3) встроена в этап 20 (<code>get_correlation_matrix(denoise=True)</code>). Факторные нагрузки (M5) — этап 25. Матрицы миграции (M2) — этап 40. Энтропийный пулинг (M1) — общий примитив для M2 и M4.</div>
+  </div>
+</div>
+
+<!-- ============ M1: ENTROPY POOLING ============ -->
+<div class="section" id="mod-entropy">
+  <div class="section-header">
+    <span class="section-num">M1</span>
+    <h2>Энтропийный пулинг — <code>relative_entropy.py</code></h2>
+    <span class="tag tag-theory">Примитив</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Базовый «строительный блок». Находит распределение вероятностей, <em>минимально отличающееся</em> от априорного (по дивергенции Кульбака—Лейблера), но удовлетворяющее заданным ограничениям на моменты. Это строгая основа для стресс-видов и для условных вероятностей (M4) и матриц миграции (M2).</p>
+    <div class="formula-block">
+p* = argmin <span class="highlight">KL(p &#8214; p_prior)</span>
+     <span class="comment">при условии:  &#8721; p&#7522; = 1,   E_p[g(x)] = b   (целевые моменты)</span>
+    </div>
+    <div class="insight success"><strong>Проверка</strong>На синтетических данных восстанавливает заданное среднее и дисперсию с точностью до численной ошибки. Порт <code>min_rel_entropy_sp</code> из <code>arpym.views</code>; зависимость от <code>statsmodels.DescrStatsW</code> заменена на взвешенные среднее/дисперсию на numpy.</p></div>
+    <p class="muted">Источник ARPM: <code>views.min_rel_entropy_sp</code> &middot; Тест: <code>test_relative_entropy</code></p>
+  </div>
+</div>
+
+<!-- ============ M2: TRANSITIONS ============ -->
+<div class="section" id="mod-transitions">
+  <div class="section-header">
+    <span class="section-num">M2</span>
+    <h2>Матрицы миграции рейтингов — <code>credit_transitions.py</code></h2>
+    <span class="tag tag-theory">Кредитный риск</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Оценивает <strong>матрицу переходов между рейтингами</strong> из когортных данных (сколько заёмщиков перешло из рейтинга i в j). Использует непрерывно-временной генератор и матричную экспоненту — корректнее, чем простой подсчёт частот, потому что гарантирует валидную стохастическую матрицу и согласованность по времени.</p>
+    <div class="formula-block">
+g&#7522;&#11428; = N_cum[i,j] / &#8721;&#8348; n_oblig[t,i]&middot;&#916;&#964;&#8348;   <span class="comment">// непрерывный генератор</span>
+<span class="highlight">P = expm(G &middot; &#916;t)</span>                          <span class="comment">// матричная экспонента &rarr; матрица переходов</span>
+    </div>
+    <p style="font-size:0.85rem;line-height:1.7;">Опция <code>monotonic=True</code> применяет к каждой строке монотонную регуляризацию через энтропийный пулинг (M1): вероятность дефолта должна <em>расти</em> с ухудшением рейтинга. Встроено в <code>RatingEngine</code> через <code>from_cohort_data()</code>.</p>
+
+    <h3 style="font-size:0.88rem;color:var(--navy);margin:16px 0 6px;">Реальный результат (демо)</h3>
+    <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Из &#92; В</th><th>Рейтинг A</th><th>Рейтинг B</th><th>Рейтинг C</th><th>Дефолт</th></tr></thead>
+      <tbody>
+        <tr><td><strong>A</strong></td><td class="mono">0.953</td><td class="mono">0.034</td><td class="mono">0.012</td><td class="mono">0.001</td></tr>
+        <tr><td><strong>B</strong></td><td class="mono">0.023</td><td class="mono">0.920</td><td class="mono">0.045</td><td class="mono">0.013</td></tr>
+        <tr><td><strong>C</strong></td><td class="mono">0.000</td><td class="mono">0.033</td><td class="mono">0.908</td><td class="mono">0.058</td></tr>
+        <tr><td><strong>Дефолт</strong></td><td class="mono">0.000</td><td class="mono">0.000</td><td class="mono">0.000</td><td class="mono">1.000</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="insight success"><strong>Корректность видна в данных</strong>PD по столбцу дефолта строго растёт с ухудшением рейтинга (0.001 &rarr; 0.013 &rarr; 0.058), диагональ — высокая вероятность сохранить рейтинг, дефолт — поглощающее состояние (1.000). Это валидная стохастическая матрица.</div>
+    <p class="muted">Источник ARPM: <code>estimation.fit_trans_matrix_credit</code> &middot; Тест: <code>test_credit_transitions</code> &middot; ETL-этап: 40</p>
+  </div>
+</div>
+
+<!-- ============ M3: SPECTRUM ============ -->
+<div class="section" id="mod-spectrum">
+  <div class="section-header">
+    <span class="section-num">M3</span>
+    <h2>Очистка спектра по Марченко—Пастуру — <code>spectrum.py</code></h2>
+    <span class="tag tag-theory">Шумоподавление</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Эмпирическая матрица корреляций при ограниченной истории сильно зашумлена. Закон <strong>Марченко—Пастура</strong> описывает распределение собственных значений чисто случайной матрицы. Всё, что попадает <em>внутрь</em> этого диапазона — шум, и его собственные значения «схлопываются» в одно среднее; остаётся только сигнал.</p>
+    <div class="formula-block">
+&#955;&#177; = &#963;&#178;(1 &#177; &#8730;(1/q))&#178;,   q = T/N      <span class="comment">// границы спектра чистого шума</span>
+f(&#955;) = &#8730;((&#955;&#8330;&#8722;&#955;)(&#955;&#8722;&#955;&#8331;)) / (2&#960;&#963;&#178;&#955;/q)        <span class="comment">// плотность Марченко-Пастура</span>
+<span class="highlight">собственные значения &lt; &#955;&#8330; &rarr; заменить средним (шум)</span>
+    </div>
+    <div class="insight"><strong>Реальный результат (демо)</strong>Для матрицы 40&times;40 из чисто случайных данных (T=80) метод оставил <strong>0 сигнальных факторов</strong> — что абсолютно верно: в случайных данных нет структуры выше границы шума. На реальных коррелированных данных метод сохраняет ровно столько факторов, сколько отражают истинную структуру.</div>
+    <p style="font-size:0.85rem;line-height:1.7;">Два режима: <code>mp_edge</code> (надёжный, по умолчанию) и <code>hist_mse</code> (точное соответствие arpym). Встроено в <code>TransactionGraph.get_correlation_matrix(denoise=True)</code>. Зависимость от <code>skrmt</code> заменена на собственную реализацию.</p>
+    <p class="muted">Источник ARPM: <code>estimation.spectrum_shrink</code> &middot; Тест: <code>test_spectrum_shrinkage</code> &middot; ETL-этап: 20</p>
+  </div>
+</div>
+
+<!-- ============ M4: CONDITIONAL FP ============ -->
+<div class="section" id="mod-condfp">
+  <div class="section-header">
+    <span class="section-num">M4</span>
+    <h2>Гибкие вероятности (Flexible Probabilities) — <code>conditional_fp.py</code></h2>
+    <span class="tag tag-theory">Режимное взвешивание</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Раньше история стресса взвешивалась гладким гауссовым ядром — приближение. <strong>Условные гибкие вероятности</strong> вместо этого <em>точно</em> воспроизводят условное среднее И дисперсию через энтропийный пулинг (M1) — строгое определение ARPM. <code>crisp_fp</code> даёт жёсткий «оконный» вариант.</p>
+    <div class="formula-block">
+p_crisp = жёсткое окно массы &#945; вокруг z*        <span class="comment">// сценарии «как сегодня»</span>
+m, s&#178;  = условные среднее и дисперсия при p_crisp
+<span class="highlight">p_cond = argmin KL(p &#8214; p_prior)  при E[z]=m, E[z&#178;]=m&#178;+s&#178;</span>
+    </div>
+    <div class="insight warning"><strong>Исправленная ошибка устойчивости</strong>При очень малом &#945; окно могло оказаться пустым &rarr; вектор вероятностей становился нулевым и тихо вырождался в априорный. Добавлен запасной механизм «ближайшего сценария»: если в окно ничего не попало, вся масса отдаётся ближайшему к z* сценарию.</div>
+    <p style="font-size:0.85rem;line-height:1.7;">Встроено в <code>FlexibleProbsCalibrator(weighting_method="conditional_fp")</code>. Функция <code>effective_scenarios(p)</code> сообщает эффективное число сценариев — индикатор того, насколько «узко» режим обусловил историю.</p>
+    <p class="muted">Источник ARPM: <code>estimation.conditional_fp</code> / <code>crisp_fp</code> &middot; Тест: <code>test_conditional_fp</code></p>
+  </div>
+</div>
+
+<!-- ============ M5: LOADINGS ============ -->
+<div class="section" id="mod-loadings">
+  <div class="section-header">
+    <span class="section-num">M5</span>
+    <h2>Факторные нагрузки — <code>low_rank_corr.py</code></h2>
+    <span class="tag tag-theory">Факторная структура</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Раньше нагрузки факторной копулы (<code>betas</code>) задавались вручную (равные = «одинаково важные»). Теперь <code>fit_factor_loadings</code> <em>оценивает</em> матрицу нагрузок (n, k) из целевой матрицы корреляций (например, корреляции графа транзакций) методом низкоранговой + диагональной аппроксимации.</p>
+    <div class="formula-block">
+C &#8776; <span class="highlight">&#946; &#946;&#7488; + diag(1 &#8722; rowSumSq(&#946;))</span>,   &#946; формы (n, k)
+&#8721;&#8342; &#946;&#7522;&#8342;&#178; &lt; 1     <span class="comment">// положительная идиосинкразическая дисперсия — копула-готова</span>
+    </div>
+    <div class="insight"><strong>Реальный результат (демо)</strong>Из корреляционной матрицы 20&times;20, построенной по известным нагрузкам &beta;&#8776;0.5, метод восстановил нагрузки формы (20,1) со средним |&beta;|&nbsp;=&nbsp;<strong>0.467</strong> — близко к истинному значению.</div>
+    <div class="insight warning"><strong>Исправленная числовая вырожденность</strong>На почти единичной корреляции «сырая» подгонка возвращала строки с &#8721;&beta;&#178;=1 (нулевая идиосинкразическая дисперсия), что <code>MultiFactorCopula</code> отвергает. Добавлен предел нормы строки <code>max_row_norm=0.999</code>, гарантирующий положительную идиосинкразическую дисперсию.</div>
+    <p class="muted">Источник ARPM: <code>estimation.low_rank_diag_conditional_corr</code> &middot; Тест: <code>test_low_rank_corr</code> &middot; ETL-этап: 25</p>
+  </div>
+</div>
+
+<!-- ============ M6: DEPENDENCE ============ -->
+<div class="section" id="mod-dependence">
+  <div class="section-header">
+    <span class="section-num">M6</span>
+    <h2>Меры зависимости — <code>dependence.py</code></h2>
+    <span class="tag tag-theory">Ранговая зависимость</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Мера <strong>Швейцера—Вольфа</strong> — ранговый показатель зависимости в диапазоне [0,1], измеряет L1-расстояние между эмпирической копулой и независимостью. В отличие от корреляции Спирмена, ловит <em>немонотонную</em> зависимость. <code>copula_invariance_test</code> — тест на сериальную зависимость (для инварианта зависимость на всех лагах должна быть ≈0).</p>
+    <div class="formula-block">
+&#963; = <span class="highlight">12/g&#178; &middot; &#8721;|C(u,v) &#8722; uv|</span>  &#8712; [0,1]    <span class="comment">// расстояние эмпирической копулы до независимости</span>
+    </div>
+    <div class="two-col">
+      <div class="insight success" style="margin:0;"><strong>Независимость &rarr; 0</strong>Демо: 1500 независимых точек &rarr; &#963; = <strong>0.040</strong> &#10003; (верно, ≈0).</div>
+      <div class="insight success" style="margin:0;"><strong>Полная зависимость &rarr; 1</strong>Демо: комонотонные данные &rarr; &#963; = <strong>0.996</strong> &#10003; (верно, ≈1).</div>
+    </div>
+    <p style="font-size:0.85rem;line-height:1.7;margin-top:14px;">Реализация векторизована (O(g&#178; log g)) с ограничением сетки для масштаба и защитой от почти константных столбцов. Подробнее об ошибке нормировки в оригинале — см. раздел <a href="#bugfix">«Найденная ошибка в ARPM»</a>.</p>
+    <p class="muted">Источник ARPM: <code>statistics.schweizer_wolff</code> (ошибка исправлена) &middot; Тест: <code>test_dependence_measures</code></p>
+  </div>
+</div>
+
+<!-- ============ M7: CALIBRATION ============ -->
+<div class="section" id="mod-calibration">
+  <div class="section-header">
+    <span class="section-num">M7</span>
+    <h2>Калибровка копулы по данным — <code>copula_calibration.py</code></h2>
+    <span class="tag tag-metrics">Калибровка</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Отвечает на вопрос «откуда взялись параметры копулы?». Полный конвейер: наблюдаемые дефолты &rarr; эмпирические меры зависимости &rarr; параметры семейств копул &rarr; рекомендация семейства по качеству подгонки.</p>
+
+    <div class="pipeline-flow" style="margin-top:8px;">
+      <div class="pipe-step active"><span class="ps-num">1</span><div class="ps-name">build_default_panel</div><div class="ps-out">панель дефолтов</div></div>
+      <div class="pipe-step"><span class="ps-num">2</span><div class="ps-name">empirical_dependence</div><div class="ps-out">&#964;, &#961;, default_corr</div></div>
+      <div class="pipe-step metrics"><span class="ps-num">3</span><div class="ps-name">calibrate_copula</div><div class="ps-out">параметры + семейство</div></div>
+    </div>
+
+    <h3 style="font-size:0.88rem;color:var(--navy);margin:16px 0 6px;">Преобразования τ &rarr; параметр (точные формулы)</h3>
+    <div class="formula-block">
+Clayton:   <span class="highlight">&#952; = 2&#964; / (1 &#8722; &#964;)</span>            <span class="comment">// &#952;(&#964;=1/3) = 1.000 &#10003;</span>
+Gaussian:  <span class="highlight">&#961; = sin(&#960;&#964;/2)</span>             <span class="comment">// &#961;(&#964;=0.5) = 0.707 &#10003;</span>
+&#961;_D = (p_AB &#8722; p_A&middot;p_B) / &#8730;(p_A(1&#8722;p_A)p_B(1&#8722;p_B))   <span class="comment">// корреляция дефолтов</span>
+    </div>
+
+    <p style="font-size:0.85rem;line-height:1.7;">Эмпирические меры: Кендалл &#964;, Спирмен &#961;, Швейцер—Вольф, корреляция дефолтов, наблюдаемая vs независимая частота совместного дефолта, нижне-хвостовая со-частота. Сравнение семейств (Gaussian / Student-t / Clayton) с проверкой границ Фреше и рекомендацией.</p>
+
+    <div class="insight success"><strong>Восстанавливает реальную зависимость</strong>Независимые данные &rarr; рекомендация ≈нулевой зависимости (&#961;&#8776;&#8722;0.01, default_corr&#8776;0.004). Данные с общим шоком &rarr; рекомендация копулы с тяжёлыми хвостами (Student-t, &#961;=0.382), эмпирическая корреляция дефолтов 0.256 (&gt;&gt;0), наблюдаемый совместный дефолт (0.049) корректно превышает независимый (0.019).</div>
+    <p class="muted">План 07 (использует <code>schweizer_wolff</code>) &middot; Тест: <code>test_copula_calibration</code> &middot; Агентский метод: <code>calibrate_copula_from_data</code></p>
+  </div>
+</div>
+
+<!-- ============ ETL ============ -->
+<div class="section" id="etl">
+  <div class="section-header">
+    <span class="section-num">ETL</span>
+    <h2>Модульный ETL-слой и ноутбуки</h2>
+    <span class="tag tag-pipeline">Инженерия</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Чтобы команда могла работать над разными частями параллельно, конвейер разбит на <strong>независимо запускаемые этапы</strong>, которые общаются только через диск.</p>
+    <div class="two-col">
+      <div class="theory-card"><h3>&#128190; ArtifactStore</h3><p>Единый контракт ввода-вывода: parquet с откатом на CSV, метод <code>resolve()</code> для поиска по расширению, <code>require()</code> для обязательных входов, декоратор <code>timed_stage</code>, устойчивость к пустым CSV.</p></div>
+      <div class="theory-card"><h3>&#128279; Изоляция этапов</h3><p>Этап читает входные артефакты, пишет выходные. Никакой общей памяти. Любой этап перезапускается изолированно, если входы на диске. Проверены: изолированный перезапуск, путь реальных данных, корректный отказ при отсутствии артефакта.</p></div>
+      <div class="theory-card"><h3>&#128214; Ноутбуки по этапам</h3><p>7 модульных <code>.ipynb</code> (по одному на этап + <code>99_run_all</code>), сгенерированы из <code>_build_notebooks.py</code>. Каждый — точка владения для отдельного человека.</p></div>
+      <div class="theory-card"><h3>&#9881;&#65039; Runner</h3><p><code>run_all(denoise=True, with_loadings=False)</code> с явными флагами. Список <code>STAGES</code> + опциональный <code>OPTIONAL_LOADINGS_STAGE</code>. Один проход даёт ~18 артефактов.</p></div>
+    </div>
+    <details>
+      <summary>Исправленные ошибки пути реальных данных (синтетический «happy path» их скрывал)</summary>
+      <div class="details-body">
+        <ul style="font-size:0.82rem;line-height:1.9;color:var(--gray4);padding-left:18px;">
+          <li><strong>Этап 00:</strong> <code>load_persons(src, mapping)</code> — mapping является keyword-only &rarr; исправлено на <code>mapping=m</code>.</li>
+          <li><strong>Этап 00:</strong> <code>reindex_to_contiguous</code> возвращает 3-кортеж (persons, transactions, id_map), а не 2 &rarr; исправлена распаковка + сохранён артефакт <code>person_id_map</code>.</li>
+          <li><strong>Этап 10:</strong> <code>get_neighbor_risk_features</code> жёстко требовал <code>base_pd</code>, но реальные данные могут иметь только <code>model_pd</code> &rarr; добавлен откат.</li>
+          <li><strong>ArtifactStore:</strong> <code>require("persons")</code> не находил <code>persons.csv</code> &rarr; добавлен <code>resolve()</code> с перебором расширений.</li>
+          <li><strong>Пустой CSV:</strong> <code>EmptyDataError</code> на файле с 0 колонок &rarr; <code>_read_csv</code> ловит и возвращает пустой DataFrame.</li>
+        </ul>
+      </div>
+    </details>
+  </div>
+</div>
+
+<!-- ============ AGENTS ============ -->
+<div class="section" id="agents">
+  <div class="section-header">
+    <span class="section-num">API</span>
+    <h2>Агентский API — диагностика по умолчанию</h2>
+    <span class="tag tag-output">Интерфейс</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Новые методы в <code>RiskAgentAPI</code>. Все возвращают JSON-безопасный <code>AgentResult(ok, data, summary, warnings, error)</code> и по умолчанию <strong>диагностические</strong> — изменяют живое состояние только при <code>apply=True</code>.</p>
+    <div class="codebox">
+<span class="cm"># Подгонка факторных нагрузок из корреляции графа (диагностика)</span>
+api.<span class="fn">fit_factor_loadings</span>(k_factors=<span class="st">2</span>, denoise=<span class="kw">True</span>, apply=<span class="kw">False</span>)
+
+<span class="cm"># Режимные веса: эффективное число сценариев и режимная &theta;</span>
+api.<span class="fn">regime_weights</span>(current_stress=<span class="st">0.8</span>, method=<span class="st">"conditional_fp"</span>, alpha=<span class="st">0.25</span>)
+
+<span class="cm"># Калибровка копулы из наблюдаемых дефолтов</span>
+api.<span class="fn">calibrate_copula_from_data</span>(events, family=<span class="st">"auto"</span>, apply=<span class="kw">False</span>)
+    </div>
+    <div class="insight warning"><strong>Исправлена скрытая ошибка приведения типов</strong>В <code>_safe()</code> проверка <code>int</code> шла раньше <code>bool</code>, а <code>bool</code> — подкласс <code>int</code> в Python. Поэтому <code>True</code> сериализовался как <code>1</code>. Исправлено перестановкой проверок (bool раньше int). Это затрагивало булевы поля <em>всех</em> агентских методов — давняя латентная ошибка.</div>
+    <p class="muted">Файл: <code>src/agents.py</code> &middot; Тесты: <code>test_agent_loadings_and_regime</code>, <code>test_copula_calibration</code></p>
+  </div>
+</div>
+
+<!-- ============ BUGFIX ============ -->
+<div class="section" id="bugfix">
+  <div class="section-header">
+    <span class="section-num">Находка</span>
+    <h2>Найденная и исправленная ошибка в опубликованном ARPM</h2>
+    <span class="tag tag-fix">Bug fix</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">При портировании <code>schweizer_wolff</code> обнаружилось, что <strong>оригинальная функция arpym возвращает значения &gt; 1 на независимых данных</strong> — нарушая определение меры (&#963; обязана быть в [0,1]).</p>
+
+    <h3 style="font-size:0.88rem;color:var(--navy);margin:14px 0 6px;">Проверка против известных теоретических значений</h3>
+    <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Случай</th><th>Истинное &#963;</th><th>Наш порт</th><th>Оригинал arpym</th><th>Вывод</th></tr></thead>
+      <tbody>
+        <tr><td>Независимость</td><td class="mono">0.000</td><td class="mono">0.059</td><td class="mono">1.125</td><td><span class="pill pill-red">arpym неверно</span></td></tr>
+        <tr><td>Полная зависимость</td><td class="mono">1.000</td><td class="mono">0.951</td><td class="mono">0.951</td><td><span class="pill pill-green">оба верно</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="insight danger"><strong>Корень проблемы</strong>Оригинал суммирует по индексам <code>i,k = 0..j&#8722;1</code> с порогами <code>i/j</code>, что рассогласовывает эмпирическую копулу и копулу независимости на разных сетках. Мера-индикатор зависимости, дающая 1.12 для независимых данных, — сломана. Наш порт использует 1-индексные пороги <code>i &#8712; 1..g</code>, что выравнивает обе копулы на одной сетке.</div>
+    <div class="insight success"><strong>Итог</strong>Наш порт корректен для обоих случаев с известным ответом. Расхождение задокументировано в docstring модуля как намеренное и обоснованное.</div>
+  </div>
+</div>
+
+<!-- ============ RESULTS ============ -->
+<div class="section" id="results">
+  <div class="section-header">
+    <span class="section-num">Итоги</span>
+    <h2>Проверка и результаты</h2>
+    <span class="tag tag-output">Сертификация</span>
+  </div>
+  <div class="section-body">
+    <div class="stat-row">
+      <div class="stat-card green"><div class="sc-label">Тесты проходят</div><div class="sc-value">49/51</div><div class="sc-sub">2 требуют python-louvain</div></div>
+      <div class="stat-card blue"><div class="sc-label">Символов в пакете</div><div class="sc-value">88</div><div class="sc-sub">экспорт из src/</div></div>
+      <div class="stat-card amber"><div class="sc-label">Артефактов ETL</div><div class="sc-value">~18</div><div class="sc-sub">за один прогон</div></div>
+      <div class="stat-card purple"><div class="sc-label">Новых тестов</div><div class="sc-value">+10</div><div class="sc-sub">41 &rarr; 51</div></div>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>Модуль</th><th>Источник ARPM</th><th>Тест</th><th>Статус</th></tr></thead>
+      <tbody>
+        <tr><td><code>relative_entropy.py</code></td><td>views.min_rel_entropy_sp</td><td>test_relative_entropy</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+        <tr><td><code>credit_transitions.py</code></td><td>estimation.fit_trans_matrix_credit</td><td>test_credit_transitions</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+        <tr><td><code>spectrum.py</code></td><td>estimation.spectrum_shrink</td><td>test_spectrum_shrinkage</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+        <tr><td><code>conditional_fp.py</code></td><td>estimation.conditional_fp / crisp_fp</td><td>test_conditional_fp</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+        <tr><td><code>low_rank_corr.py</code></td><td>estimation.low_rank_diag_conditional_corr</td><td>test_low_rank_corr</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+        <tr><td><code>dependence.py</code></td><td>statistics.schweizer_wolff (исправлено)</td><td>test_dependence_measures</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+        <tr><td><code>copula_calibration.py</code></td><td>План 07 (эмпирическая калибровка)</td><td>test_copula_calibration</td><td><span class="pill pill-green">&#10003;</span></td></tr>
+      </tbody>
+    </table>
+    <div class="insight success"><strong>Самые ценные находки</strong>(1) Весь путь реальных данных в конвейере был сломан — синтетический happy-path это скрывал. (2) В опубликованном <code>schweizer_wolff</code> ARPM есть ошибка нормировки. Оба исправлены и покрыты тестами.</div>
+  </div>
+</div>
+
+<!-- ============ ROADMAP ============ -->
+<div class="section" id="roadmap">
+  <div class="section-header">
+    <span class="section-num">Дальше</span>
+    <h2>Что осталось — банковские production-слои</h2>
+    <span class="tag tag-theory">Дорожная карта</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:0.85rem;line-height:1.7;">Реализованные модули — это математические <em>порты</em>. Оставшиеся пункты (планы Codex 02/03/06) — более крупные и «мнениевые» банковские слои, с готовыми планами:</p>
+    <table class="data-table">
+      <thead><tr><th>План</th><th>Содержание</th><th>Объём</th><th>Готовность зависимостей</th></tr></thead>
+      <tbody>
+        <tr><td><strong>02</strong> Калибровка/бэктест PD</td><td>Brier / ECE / AUC, изотоническая калибровка, дрейф</td><td><span class="pill pill-amber">средний</span></td><td>—</td></tr>
+        <tr><td><strong>03</strong> Модели EAD/LGD</td><td>CCF-экспозиция, LGD по залогу, потери на уровне заёмщика</td><td><span class="pill pill-red">средне-большой</span></td><td>—</td></tr>
+        <tr><td><strong>06</strong> Lifetime PD / IFRS9</td><td>Марковские состояния просрочки, кривые lifetime PD, стадии 1/2/3</td><td><span class="pill pill-amber">средний</span></td><td><span class="pill pill-green">credit_transitions готов</span></td></tr>
+        <tr><td><strong>07/08</strong> глубже</td><td>MLE-фиттеры по семействам; диагностика fitted-vs-configured</td><td><span class="pill pill-blue">меньше</span></td><td><span class="pill pill-green">первая версия готова</span></td></tr>
+      </tbody>
+    </table>
+    <div class="insight"><strong>Рекомендация</strong>План 06 (Lifetime PD / IFRS9) — самое естественное продолжение: он напрямую переиспользует <code>credit_transitions.py</code> и хорошо очерчен. Альтернатива — План 02 (бэктест PD), помеченный как P0 в дорожной карте.</div>
+    <p class="muted">Подробные планы: <code>implementation_plans/</code> &middot; Кросс-проверены с планами ChatGPT Codex 5.5.</p>
+  </div>
+</div>
+
+</main>
+
+<script>
+// Подсветка активного пункта меню при прокрутке
+(function () {
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.section[id]'));
+  var links = Array.prototype.slice.call(document.querySelectorAll('.sidebar a[href^="#"]'));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  function onScroll() {
+    var pos = window.scrollY + 100;
+    var current = null;
+    sections.forEach(function (s) { if (s.offsetTop <= pos) current = s.id; });
+    links.forEach(function (a) { a.classList.remove('active'); });
+    if (current && byId[current]) byId[current].classList.add('active');
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

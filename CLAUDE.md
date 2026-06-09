@@ -43,7 +43,9 @@ This is a **credit-risk framework** that models correlated defaults using:
 
 **Run order:** `main.py` executes a 13-step pipeline (+ STEP 8b) end-to-end. Grep `# STEP` in `main.py` to jump to any step.
 
-**Run tests:** `python test_copula_framework.py` — should print `All 41 tests passed.`
+**Run tests:** `python test_copula_framework.py` — 51 tests. (2 require the optional
+`python-louvain`/`networkx` extra; without it the cluster tests are expected to fail —
+the other 49 must pass.)
 
 **Run pipeline:** `python main.py` — completes in ~30-60 s, writes PNGs + CSVs to `output/`
 
@@ -73,11 +75,34 @@ src/
   customer_profile.py        – CustomerProfiler (per-borrower risk report + watchlist)
   risk_adjusted_metrics.py   – RiskRatioCalculator + metric registry (CoV/RAROC/Sortino family)
   metric_comparison.py       – MetricComparator (rank-corr, disagreements, divergence flags)
+  relative_entropy.py        – min_rel_entropy_sp (entropy pooling; arpym port, scipy/numpy only)
+  credit_transitions.py      – fit_trans_matrix_credit: rigorous continuous-time generator +
+                               half-life weighting + entropy-regularised monotonicity (arpym #1).
+                               Used by RatingEngine.from_cohort_data().
+  spectrum.py                – spectrum_shrink / denoise_correlation: Marčenko-Pastur random-matrix
+                               denoising (arpym #2). Wired into TransactionGraph.get_correlation_matrix(denoise=True).
+  conditional_fp.py          – conditional_fp / crisp_fp: rigorous flexible-probabilities family
+                               (entropy-pooling moment match). Wired into
+                               FlexibleProbsCalibrator(weighting_method="conditional_fp").
+  low_rank_corr.py           – low_rank_diag_conditional_corr / fit_factor_loadings: fits (n,k) factor
+                               loadings from a correlation matrix → feed MultiFactorCopula(betas=...).
+  dependence.py              – schweizer_wolff (rank dependence, [0,1]) + copula_invariance_test.
+                               NOTE: fixes a normalisation bug in arpym's schweizer_wolff.
+  copula_calibration.py      – build_default_panel / empirical_dependence_measures / calibrate_copula:
+                               estimate copula params from observed defaults (τ→Clayton/Gaussian/t).
   __init__.py                – Re-exports all public symbols; read this for the full API
+
+pipelines/                   – Modular ETL layer: one ownable stage per concern, communicating
+                               only via a shared on-disk ArtifactStore (output/etl/). See
+                               pipelines/__init__.py for the stage map. Run all: `from pipelines
+                               import run_all; run_all(denoise=True)`. Run one stage in isolation:
+                               `from pipelines.stage_20_graph import run`.
+notebooks/                   – One .ipynb per ETL stage (00_ingest … 50_metrics + 99_run_all) so
+                               different people own different stages. See notebooks/README.md.
 
 main.py                      – 13-step pipeline + STEP 8b (risk-adjusted metrics)
 demo_clusters.py             – End-to-end geo+transfer cluster + anchor pipeline (saves artifacts to output/)
-test_copula_framework.py     – 41 unit tests; run with: python test_copula_framework.py
+test_copula_framework.py     – 51 unit tests; run with: python test_copula_framework.py
 generate_presentation_ru.py  – Russian-language presentation generator
 debug.py                     – Quick one-off diagnostic helpers (see below)
 generate_presentation.py     – Generates output/presentation.html from pipeline outputs
@@ -161,6 +186,17 @@ output/                      – Generated PNGs + CSVs (git-ignored in productio
 | Quantify "if the anchor defaults, the cluster cascades" | `src/cluster_metrics.py:ClusterRiskMetrics.anchor_contagion_table()` (conditional-EL uplift) |
 | Run the full cluster pipeline end-to-end | `python demo_clusters.py` → artifacts in `output/` |
 | Change agent API response schema | `src/agents.py:AgentResult` dataclass |
+| Estimate a transition matrix from real migration data | `src/credit_transitions.py:fit_trans_matrix_credit` or `RatingEngine.from_cohort_data(...)` |
+| Denoise a correlation matrix (random-matrix theory) | `graph.get_correlation_matrix(denoise=True)` or `src/spectrum.py:denoise_correlation` |
+| Impose stress/views on scenario probabilities | `src/relative_entropy.py:min_rel_entropy_sp` |
+| Regime-condition history rigorously (not kernel) | `src/conditional_fp.py:conditional_fp` or `FlexibleProbsCalibrator(weighting_method="conditional_fp")` |
+| Fit factor-copula loadings from a correlation matrix | `src/low_rank_corr.py:fit_factor_loadings` → `MultiFactorCopula.fit(..., betas=beta)` |
+| Fit loadings / regime weights via the agent API | `RiskAgentAPI.fit_factor_loadings(apply=False)` · `RiskAgentAPI.regime_weights(method="conditional_fp")` |
+| Fit loadings as an ETL stage | `run_all(with_loadings=True)` (optional stage 25) → `factor_loadings` artifact |
+| Measure non-linear/tail dependence between two series | `src/dependence.py:schweizer_wolff` (σ∈[0,1]; >0 even when Spearman≈0) |
+| Calibrate copula params from observed defaults | `src/copula_calibration.py:calibrate_copula` or `RiskAgentAPI.calibrate_copula_from_data(apply=False)` |
+| Run the modular ETL pipeline (per-stage, ownable) | `from pipelines import run_all; run_all(denoise=True)` → `output/etl/`; or open `notebooks/99_run_all.ipynb` |
+| Re-run a single ETL stage in isolation | `from pipelines.stage_NN_xxx import run; run(ArtifactStore("output/etl"), ...)` |
 
 **Additivity invariant:** `E[Loss]`, `E[Profit]`, and `Capital` are additive across borrowers. `Var(Loss_S)` for segment S is the block-sum of `loss_cov[np.ix_(S,S)]`. A segment metric is ALWAYS computed from these aggregates, never as a weighted average of per-borrower metrics (incorrect under correlation).
 
@@ -169,7 +205,7 @@ output/                      – Generated PNGs + CSVs (git-ignored in productio
 ## How to add a test
 
 Tests live in `test_copula_framework.py`. Each test is a standalone function `test_<name>(...)` that
-prints `"Test NN: <description>... PASSED"`. Add your function, then call it from the `if __name__ == "__main__"` block at the bottom. The total count in the summary line must match (currently 41).
+prints `"Test NN: <description>... PASSED"`. Add your function, then call it from the `if __name__ == "__main__"` block at the bottom. The total count in the summary line must match (currently 51).
 
 Pattern:
 ```python
@@ -226,6 +262,13 @@ python debug.py profile 42
 - **KMV proxy**: `V ≈ income×12 / 0.08` (capitalised monthly-income perpetuity)
 - **Rating migration**: `P(Δt) = expm(G·Δt)` where G is generator matrix
 - **Flexible probs kernel**: `w_t ∝ exp(-||z_hist_t - z_curr||² / (2h²))`
+- **Credit generator (arpym #1)**: `g[i,j] = N_cum[i,j] / Σ_t n_oblig[t,i]·Δτ_t`, `g[i,i] = -Σ_{j≠i} g[i,j]`, `P = expm(G)`, then per-row monotonicity via min-relative-entropy
+- **Marčenko-Pastur edge (arpym #2)**: `λ± = σ²(1 ± √(1/q))²`, `q = T/N`; eigenvalues `> λ₊` are signal, the noise bulk is flattened to its mean
+- **Entropy pooling**: `min Σ p_j·log(p_j/p_pri_j)` s.t. linear views; posterior `p ∝ p_pri·exp(θ·Z)`
+- **Conditional FP**: crisp window of mass α around z* → conditional (m, s²); then entropy-pool to match `E[z]=m, E[z²]=m²+s²`
+- **Low-rank corr**: `C ≈ β βᵀ + diag(1 − rowSumSq β)`, β shape (n,k), `Σ_k β_ik² < 1` (positive idiosyncratic variance → copula-ready loadings)
+- **Schweizer-Wolff**: `σ = 12/g² · Σ|C(u,v) − uv|` ∈ [0,1]; rank-based, catches non-monotone dependence (arpym normalisation bug fixed here)
+- **Default correlation**: `ρ_D = (p_AB − p_A p_B) / √(p_A(1−p_A) p_B(1−p_B))`; Clayton `θ = 2τ/(1−τ)`, Gaussian `ρ = sin(πτ/2)`
 - **RAROC**: `E[Profit] / (8% × EAD)`
 - **Client Sharpe**: `(E[Profit] - rf×Revenue) / σ(Profit)`
 - **Contagion vulnerability**: weighted avg PD uplift from neighbour defaults
@@ -241,4 +284,14 @@ numpy, pandas, scipy, scikit-learn, matplotlib
 ```
 All standard — no unusual installs. Install: `pip install -r requirements.txt`
 
-No arpym library dependency in this project (the flexible_probs module is self-contained).
+**No arpym *library* dependency.** Several modules are self-contained *ports* of
+arpym algorithms (same math, re-implemented on numpy/scipy so nothing new is
+installed): `flexible_probs.py`, plus the seven ARPM ports — `relative_entropy.py`
+(min_rel_entropy_sp), `credit_transitions.py` (fit_trans_matrix_credit),
+`spectrum.py` (spectrum_shrink — MP density in closed form, so `skrmt` is **not**
+required), `conditional_fp.py` (conditional_fp / crisp_fp), `low_rank_corr.py`
+(low_rank_diag_conditional_corr / conditional_pc), `dependence.py`
+(schweizer_wolff — fixes an arpym normalisation bug — + copula invariance test),
+and `copula_calibration.py` (empirical τ→Clayton/Gaussian/t calibration, Plan 07).
+Optional: a parquet engine (`pyarrow`) makes the ETL artifact store use parquet;
+without it, it transparently falls back to CSV.

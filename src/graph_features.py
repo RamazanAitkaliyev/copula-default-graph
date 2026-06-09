@@ -423,7 +423,10 @@ class TransactionGraph:
         base_corr: float = 0.05,
         max_corr: float = 0.6,
         same_city_boost: float = 0.1,
-        same_group_boost: float = 0.2
+        same_group_boost: float = 0.2,
+        denoise: bool = False,
+        denoise_t_bar: Optional[int] = None,
+        denoise_method: str = "mp_edge",
     ) -> np.ndarray:
         """
         Derive a DENSE correlation matrix from network structure (small n only).
@@ -432,6 +435,24 @@ class TransactionGraph:
           - Direct transaction links (weighted by volume)
           - Same city membership
           - Same high-risk group membership
+
+        Parameters
+        ----------
+        denoise : bool, default False
+            If True, apply Marčenko-Pastur spectrum shrinkage (random-matrix
+            denoising) to the correlation matrix BEFORE the PSD projection. This
+            flattens the noisy eigenvalue bulk while preserving the dominant
+            (signal) correlation structure — more stable copula simulations and
+            better conditioning. See ``src/spectrum.py``.
+        denoise_t_bar : int, optional
+            Effective sample size driving the MP aspect ratio. A graph-derived
+            matrix has no literal observation count, so if omitted it defaults to
+            ``max(n_edges // n_nodes, 2) * n_nodes`` heuristically — i.e. it
+            scales the bulk width by the average node degree (a denser graph =
+            more "evidence" per pair). Pass an explicit value when you know the
+            real number of periods/observations behind the correlations.
+        denoise_method : {"mp_edge", "hist_mse"}, default "mp_edge"
+            Selection rule for the signal/noise cut (see ``spectrum_shrink``).
 
         SCALE WARNING: This materialises a dense n×n matrix AND a dense n×n
         boolean outer product for the city/group boosts. It raises MemoryError
@@ -476,6 +497,16 @@ class TransactionGraph:
 
         corr = np.clip(corr, 0, 0.95)
         np.fill_diagonal(corr, 1.0)
+
+        # Optional random-matrix denoising before the PSD projection.
+        if denoise:
+            from .spectrum import denoise_correlation
+            if denoise_t_bar is None:
+                n_edges = int(self.adj_binary_sp.nnz / 2)
+                avg_degree = max(n_edges // max(n, 1), 2)
+                denoise_t_bar = avg_degree * n
+            corr = denoise_correlation(corr, denoise_t_bar, method=denoise_method)
+
         corr = self._nearest_psd(corr)
         return corr
 
