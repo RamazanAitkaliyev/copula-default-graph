@@ -58,8 +58,12 @@ def run(
     )
 
     params = {"copula_type": copula_type, "nu": nu, "n_obligors": int(len(pds))}
-    if hasattr(copula, "theta"):
-        params["theta"] = float(getattr(copula, "theta"))
+    # The fitted dependence parameter lives on copula.params.theta (the
+    # CopulaParams record), not as a top-level copula.theta attribute.
+    cop_params = getattr(copula, "params", None)
+    theta = getattr(cop_params, "theta", None) if cop_params is not None else None
+    if theta is not None:
+        params["theta"] = float(theta)
         res.metrics["theta"] = round(params["theta"], 4)
     res.outputs.append(store.write_json("copula_params", params))
     return res
